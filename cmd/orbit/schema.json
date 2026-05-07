@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/guille/orbit/schema.json",
+  "title": "Orbit Configuration",
+  "description": "Configuration file for orbit, a modern cron that uses systemd as its back-end.",
+  "type": "object",
+  "properties": {
+    "tasks": {
+      "description": "Task definitions. Each key is the task name.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/task"
+      }
+    },
+    "reminders": {
+      "description": "Reminder definitions. Each key is the reminder name.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/reminder"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "task": {
+      "type": "object",
+      "description": "A scheduled or manual task.",
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The command to execute."
+        },
+        "schedule": {
+          "type": "string",
+          "description": "systemd OnCalendar expression (e.g. 'daily', '*-*-* 03:00:00'). Omit for manual-only tasks."
+        },
+        "on_missed": {
+          "type": "string",
+          "description": "Behavior when a scheduled run was missed. Only valid when schedule is set.",
+          "enum": ["run_once", "skip"],
+          "default": "run_once"
+        },
+        "retry": {
+          "$ref": "#/$defs/retry"
+        }
+      },
+      "additionalProperties": false
+    },
+    "retry": {
+      "type": "object",
+      "description": "Retry settings for a task.",
+      "properties": {
+        "attempts": {
+          "type": "integer",
+          "description": "Number of retry attempts. Set to 0 to disable retries. Defaults to 3 if omitted.",
+          "minimum": 0,
+          "default": 3
+        },
+        "delay": {
+          "type": "string",
+          "description": "Delay between retries (e.g. '5m', '30s', '1h30m').",
+          "default": "5m"
+        }
+      },
+      "additionalProperties": false
+    },
+    "reminder": {
+      "type": "object",
+      "description": "A recurring reminder with optional condition check.",
+      "required": ["schedule", "message"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Optional command to run when the reminder is acknowledged."
+        },
+        "schedule": {
+          "type": "string",
+          "description": "systemd OnCalendar expression (e.g. 'daily', 'weekly')."
+        },
+        "message": {
+          "type": "string",
+          "description": "The notification message to display."
+        },
+        "snooze": {
+          "type": "string",
+          "description": "Default snooze duration (e.g. '2h', '30m', '1h30m').",
+          "default": "2h"
+        },
+        "check": {
+          "type": "string",
+          "description": "Optional command to run before firing. The reminder only triggers if this command exits with code 0."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

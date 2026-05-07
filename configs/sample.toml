@@ -1,0 +1,26 @@
+# Example orbit configuration
+# Schedule values use systemd OnCalendar syntax.
+# See: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events
+# Test with: systemd-analyze calendar "daily"
+
+[tasks.backup]
+command        = "rsync -av ~/Documents /mnt/backup/"
+schedule       = "*-*-* 03:00:00"  # daily at 3 AM
+on_missed      = "run_once"
+retry.attempts = 3
+retry.delay    = "5m"
+
+[tasks.deploy]
+command = "/path/to/scripts/deploy.sh"
+# no schedule — manual only, run with: orbit task run deploy
+
+[reminders.weekly-review]
+command  = "echo 'Running weekly review'"
+schedule = "Mon *-*-* 09:00:00"  # Monday at 9 AM
+message  = "Time for your weekly review"
+snooze   = "2h"
+
+[reminders.check-pacnew]
+schedule = "daily"
+check    = "locate .pacnew"  # the reminder will only trigger IF this command exits with code 0
+message  = "There are pacnew files to review!"

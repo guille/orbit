@@ -1,0 +1,57 @@
+[shell_alias]
+orbit = "go run ./cmd/orbit"
+
+[tasks.clean]
+run = "go clean"
+
+[tasks.test]
+run = "go test ./..."
+
+[tasks.fmt]
+run = "go fmt ./..."
+
+[tasks.vet]
+depends = ["fmt"]
+hide    = true  # use check
+run     = "go vet ./..."
+
+[tasks.fix]
+depends = ["fmt"]
+hide    = true  # use check
+run     = "go fix ./..."
+
+[tasks.staticcheck]
+hide    = true  # use check
+depends = ["fmt"]
+run     = "staticcheck ./..."
+
+[tasks.govulncheck]
+hide    = true  # use check
+depends = ["fmt"]
+run     = "govulncheck ./..."
+
+[tasks.fuzz]
+usage = 'arg "<duration>" default="60s"'
+run   = """
+go test ./cmd/orbit/ -fuzz=FuzzNaturalLess -fuzztime=${usage_duration?}
+go test ./cmd/orbit/ -fuzz=FuzzSplitChunk -fuzztime=${usage_duration?}
+go test ./cmd/orbit/ -fuzz=FuzzCompareNumeric -fuzztime=${usage_duration?}
+"""
+
+[tasks.check]
+depends = ["vet", "fix", "staticcheck", "govulncheck"]
+
+[tasks.build]
+depends = ["fmt"]
+sources = ["**/*.go", "go.sum", "cmd/orbit/icon.png", "cmd/orbit/schema.json"]
+outputs = ["bin/orbit"]
+run     = "go build -o bin/orbit ./cmd/orbit"
+
+[tasks.completions]
+run = "eval $(go run ./cmd/orbit completion zsh)"
+
+[env]
+_.path = ["bin/"]
+
+[deps]
+go = { auto = true }
