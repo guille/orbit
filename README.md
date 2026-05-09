@@ -16,7 +16,7 @@ Anyone on a systemd-based Linux system who wants an easier way to manage recurri
 
 ```sh
 # Build from source
-go install orbit/cmd/orbit@latest
+go install github.com/guille/orbit/cmd/orbit@latest
 
 # Create and edit your config
 orbit edit

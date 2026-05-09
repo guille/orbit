@@ -75,18 +75,17 @@ func (r *Runner) Run(name, command string, retryConfig config.RetryConfig) error
 	// If we previously exhausted retries, reset attempt counter for a fresh cycle.
 	// ConsecutiveFailures is NOT reset here — it only resets on success.
 	attempts := retryConfig.GetAttempts()
-	if attempts > 0 && taskState.RetryAttempt >= attempts {
+	maxAttempts := attempts
+	if maxAttempts <= 0 {
+		maxAttempts = 1 // always run at least once
+	}
+	if taskState.RetryAttempt >= maxAttempts {
 		taskState.RetryAttempt = 0
 	}
 
 	delay, err := parseDelay(retryConfig.Delay)
 	if err != nil {
 		return fmt.Errorf("invalid retry delay %q: %w", retryConfig.Delay, err)
-	}
-
-	maxAttempts := attempts
-	if maxAttempts <= 0 {
-		maxAttempts = 1 // always run at least once
 	}
 
 	startAttempt := taskState.RetryAttempt
