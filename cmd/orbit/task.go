@@ -36,6 +36,7 @@ func taskRunCmd() *cobra.Command {
 		Short:             "Run a task immediately",
 		Long:              `Run a task immediately, executing the command directly with output streamed to the terminal.`,
 		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"r"},
 		ValidArgsFunction: completeNames(taskNames),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()
@@ -130,6 +131,7 @@ func taskStatusCmd() *cobra.Command {
 		Short:             "Detailed view of one task",
 		Long:              `Show detailed information about a specific task.`,
 		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"st"},
 		ValidArgsFunction: completeNames(taskNames),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()

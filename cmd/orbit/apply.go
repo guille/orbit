@@ -54,7 +54,7 @@ func applyCmd() *cobra.Command {
 
 	cmd := withConfigFlag(&cobra.Command{
 		Use:     "apply",
-		Aliases: []string{"a"},
+		Aliases: []string{"a", "ap"},
 		Short:   "Reconcile config with systemd units",
 		Long:    `Parse the configuration file and create/update/delete systemd user units to match the declared configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -148,6 +148,7 @@ func reminderStatusCmd() *cobra.Command {
 		Short:             "Detailed view of one reminder",
 		Long:              `Show detailed information about a specific reminder.`,
 		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"st"},
 		ValidArgsFunction: completeNames(reminderNames),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()

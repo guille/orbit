@@ -20,7 +20,7 @@ var schemaJSON []byte
 func editCmd() *cobra.Command {
 	return withConfigFlag(&cobra.Command{
 		Use:     "edit",
-		Aliases: []string{"e"},
+		Aliases: []string{"e", "ed"},
 		Short:   "Open config in $EDITOR",
 		Long:    `Open the orbit configuration file in the editor specified by $EDITOR.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
