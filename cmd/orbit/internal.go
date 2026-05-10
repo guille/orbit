@@ -240,14 +240,11 @@ func completeNames(extract nameExtractor) func(*cobra.Command, []string, string)
 
 // getConfigDir returns the orbit config directory, respecting XDG_CONFIG_HOME.
 func getConfigDir() (string, error) {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "orbit"), nil
-	}
-	home, err := os.UserHomeDir()
+	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
+		return "", fmt.Errorf("cannot determine config directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "orbit"), nil
+	return filepath.Join(dir, "orbit"), nil
 }
 
 // getDataDir returns the orbit data directory, respecting XDG_DATA_HOME.

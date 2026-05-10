@@ -390,15 +390,11 @@ func (m *Manager) ListUnits() ([]string, error) {
 
 // unitDir returns the path to the user systemd unit directory.
 func (m *Manager) unitDir() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "systemd", "user")
-	}
-	home, err := os.UserHomeDir()
+	dir, err := os.UserConfigDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot determine home directory: %v\n", err)
-		home = "."
+		fmt.Fprintf(os.Stderr, "Warning: cannot determine user config directory: %v\n", err)
 	}
-	return filepath.Join(home, ".config", "systemd", "user")
+	return filepath.Join(dir, "systemd", "user")
 }
 
 // daemonReload runs systemctl daemon-reload.
