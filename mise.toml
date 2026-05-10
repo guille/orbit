@@ -1,5 +1,5 @@
 [shell_alias]
-orbit = "go run ./cmd/orbit"
+orbit = "go run -ldflags \"-X main.version=$(git describe --tags --dirty)\" ./cmd/orbit"
 
 [tasks.clean]
 run = "go clean"
@@ -45,7 +45,7 @@ depends = ["vet", "fix", "staticcheck", "govulncheck"]
 depends = ["fmt"]
 sources = ["**/*.go", "go.sum", "cmd/orbit/icon.png", "cmd/orbit/schema.json"]
 outputs = ["bin/orbit"]
-run     = "go build -o bin/orbit ./cmd/orbit"
+run     = "go build -ldflags \"-X main.version=$(git describe --tags --dirty)\" -o bin/orbit ./cmd/orbit"
 
 [tasks.completions]
 run = "eval $(go run ./cmd/orbit completion zsh)"

@@ -133,6 +133,8 @@ func main() {
 	rootCmd.AddCommand(enableCmd())
 	rootCmd.AddCommand(disableCmd())
 
+	rootCmd.AddCommand(versionCmd())
+
 	rootCmd.AddCommand(runInternalCmd())
 	rootCmd.AddCommand(notifyInternalCmd())
 
