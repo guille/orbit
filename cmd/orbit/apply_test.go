@@ -249,10 +249,12 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	os.Stdout = w
 	fn()
+	//nolint:errcheck
 	w.Close()
 	os.Stdout = old
 	buf := make([]byte, 4096)
 	n, _ := r.Read(buf)
+	//nolint:errcheck
 	r.Close()
 	return string(buf[:n])
 }

@@ -252,6 +252,7 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Reminder has a command: %s\n", reminderConfig.Command)
 			fmt.Print("Run it? [Y/n] ")
 			var answer string
+			//nolint:errcheck
 			fmt.Scanln(&answer)
 			shouldRun = answer != "n" && answer != "N" && answer != "no"
 		}

@@ -151,7 +151,7 @@ func FuzzCompareNumeric(f *testing.F) {
 
 		// Antisymmetry
 		rev := compareNumeric(b, a)
-		if cmp != -rev && !(cmp == 0 && rev == 0) {
+		if cmp != -rev && (cmp != 0 || rev != 0) {
 			t.Errorf("antisymmetry: compareNumeric(%q,%q)=%d but compareNumeric(%q,%q)=%d", a, b, cmp, b, a, rev)
 		}
 

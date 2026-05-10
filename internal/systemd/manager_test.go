@@ -333,8 +333,11 @@ func TestRemoveUnits_WithMock(t *testing.T) {
 
 	// Create files to remove
 	systemdDir := filepath.Join(tmpDir, "systemd", "user")
+	//nolint:errcheck
 	os.MkdirAll(systemdDir, 0755)
+	//nolint:errcheck
 	os.WriteFile(filepath.Join(systemdDir, "orbit-task-old.service"), []byte("x"), 0644)
+	//nolint:errcheck
 	os.WriteFile(filepath.Join(systemdDir, "orbit-task-old.timer"), []byte("x"), 0644)
 
 	units := []Unit{

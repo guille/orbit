@@ -32,6 +32,7 @@ func Pick(prompt string, items []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("enabling raw mode: %w", err)
 	}
+	//nolint:errcheck
 	defer term.Restore(fd, oldState)
 
 	// Restore terminal on signals that would otherwise leave it raw.
@@ -43,6 +44,7 @@ func Pick(prompt string, items []string) (string, error) {
 	go func() {
 		select {
 		case <-sigCh:
+			//nolint:errcheck
 			term.Restore(fd, oldState)
 			os.Exit(1)
 		case <-done:
@@ -321,6 +323,7 @@ func render(prompt string, items []string, cursor int, filter string, filterPos 
 	buf.WriteString("\033[A")
 	fmt.Fprintf(&buf, "\r\033[%dC", len(filterPrefix)+filterPos)
 
+	//nolint:errcheck
 	// Write entire frame at once
 	os.Stdout.WriteString(buf.String())
 
@@ -377,6 +380,7 @@ func clearLines(lines int) {
 	if lines > 0 {
 		var buf strings.Builder
 		moveUpAndClear(&buf, lines)
+		//nolint:errcheck
 		os.Stdout.WriteString(buf.String())
 	}
 }

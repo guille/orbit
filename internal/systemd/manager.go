@@ -413,6 +413,7 @@ func (m *Manager) daemonReload() error {
 // systemctl runs a systemctl command, ignoring output and errors.
 func (m *Manager) systemctl(subcmd string, args ...string) {
 	allArgs := m.systemctlArgs(subcmd, args...)
+	//nolint:errcheck
 	m.ctl.Run(allArgs...)
 }
 

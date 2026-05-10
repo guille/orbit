@@ -119,6 +119,7 @@ func notifyInternalCmd() *cobra.Command {
 // orbit.toml need this (apply, plan, edit, doctor).
 func withConfigFlag(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().String("config", "", "path to config file (default: $XDG_CONFIG_HOME/orbit/orbit.toml)")
+	//nolint:errcheck
 	cmd.MarkFlagFilename("config", "toml")
 	return cmd
 }

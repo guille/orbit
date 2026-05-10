@@ -193,11 +193,13 @@ func (s *State) Save() error {
 	if err != nil {
 		return fmt.Errorf("opening lock file: %w", err)
 	}
+	//nolint:errcheck
 	defer lockFile.Close()
 
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("acquiring file lock: %w", err)
 	}
+	//nolint:errcheck
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 
 	// Re-read state from disk under the lock to pick up any changes
