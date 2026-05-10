@@ -20,10 +20,10 @@ depends = ["fmt"]
 hide    = true  # use check
 run     = "go fix ./..."
 
-[tasks.staticcheck]
+[tasks.golangci]
 hide    = true  # use check
 depends = ["fmt"]
-run     = "staticcheck ./..."
+run     = "golangci-lint run ./..."
 
 [tasks.govulncheck]
 hide    = true  # use check
@@ -39,7 +39,7 @@ go test ./cmd/orbit/ -fuzz=FuzzCompareNumeric -fuzztime=${usage_duration?}
 """
 
 [tasks.check]
-depends = ["vet", "fix", "staticcheck", "govulncheck"]
+depends = ["vet", "fix", "golangci", "govulncheck"]
 
 [tasks.build]
 depends = ["fmt"]
