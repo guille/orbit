@@ -18,7 +18,9 @@ import (
 var schemaJSON []byte
 
 func editCmd() *cobra.Command {
-	return withConfigFlag(&cobra.Command{
+	var detach bool
+
+	cmd := withConfigFlag(&cobra.Command{
 		Use:     "edit",
 		Aliases: []string{"e", "ed"},
 		Short:   "Open config in $EDITOR",
@@ -77,6 +79,14 @@ func editCmd() *cobra.Command {
 			c.Stdout = os.Stdout
 			c.Stderr = os.Stderr
 
+			if detach {
+				if err := c.Start(); err != nil {
+					return fmt.Errorf("opening editor: %w", err)
+				}
+				fmt.Printf("Opened %s in %s\n", configPath, editorCmd)
+				return nil
+			}
+
 			fmt.Printf("%s", dim("Waiting for the editor to close..."))
 			if err := c.Run(); err != nil {
 				fmt.Printf("\r\033[K") // clear the waiting message
@@ -126,4 +136,7 @@ func editCmd() *cobra.Command {
 			return runApply(cfg, stateStore, &cs, false)
 		},
 	})
+
+	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Open editor and return immediately without waiting")
+	return cmd
 }
