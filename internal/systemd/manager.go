@@ -428,17 +428,6 @@ func (m *Manager) systemctlArgs(subcmd string, args ...string) []string {
 	return result
 }
 
-// StopAndDisableTimer stops and disables a timer unit.
-func (m *Manager) StopAndDisableTimer(timerName string) {
-	m.systemctl("stop", timerName)
-	m.systemctl("disable", timerName)
-}
-
-// EnableAndStartTimer enables and starts a timer unit.
-func (m *Manager) EnableAndStartTimer(timerName string) {
-	m.systemctl("enable", "--now", timerName)
-}
-
 // StopAndDisableTimers stops and disables multiple timer units in batch.
 func (m *Manager) StopAndDisableTimers(timerNames []string) {
 	if len(timerNames) == 0 {

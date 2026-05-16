@@ -189,26 +189,27 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 	}
 
 	// Respect disabled state: stop timers for disabled entries
-	var disabledCount int
+	var disabledTimers []string
 	for name := range cfg.Tasks {
 		ts := stateStore.GetTaskState(name)
 		if ts.Disabled {
-			manager.StopAndDisableTimer(systemd.TaskTimerName(name))
-			disabledCount++
+			disabledTimers = append(disabledTimers, systemd.TaskTimerName(name))
 		}
 	}
 	for name := range cfg.Reminders {
 		rs := stateStore.GetReminderState(name)
 		if rs.Disabled {
-			manager.StopAndDisableTimer(systemd.ReminderTimerName(name))
-			disabledCount++
+			disabledTimers = append(disabledTimers, systemd.ReminderTimerName(name))
 		}
+	}
+	if len(disabledTimers) > 0 {
+		manager.StopAndDisableTimers(disabledTimers)
 	}
 
 	fmt.Printf("Done. %d created, %d updated, %d removed, %d unchanged.\n",
 		cs.nCreate, cs.nUpdate, cs.nRemove, cs.nUnchanged)
-	if disabledCount > 0 {
-		fmt.Printf("%s\n", dim(fmt.Sprintf("(%d entries disabled)", disabledCount)))
+	if len(disabledTimers) > 0 {
+		fmt.Printf("%s\n", dim(fmt.Sprintf("(%d entries disabled)", len(disabledTimers))))
 	}
 	return nil
 }
