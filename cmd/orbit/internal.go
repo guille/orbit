@@ -102,13 +102,18 @@ func notifyInternalCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "[ORBIT] Warning: failed to send notification: %v\n", err)
 			}
 
+			// Check if snoozed before Fire() changes state
+			wasSnoozed := stateStore.GetReminderState(name).State == state.StateSnoozed
+
 			h := reminder.NewHandler(stateStore)
 			if err := h.Fire(name); err != nil {
 				return fmt.Errorf("saving state: %w", err)
 			}
 
-			manager := systemd.NewManager(resolveOrbitBinary())
-			removeSnoozeTimer(manager, name)
+			if wasSnoozed {
+				manager := systemd.NewManager(resolveOrbitBinary())
+				removeSnoozeTimer(manager, name)
+			}
 
 			return nil
 		},
