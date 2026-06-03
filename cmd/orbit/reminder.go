@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/guille/orbit/internal/reminder"
-	"github.com/guille/orbit/internal/state"
-	"github.com/guille/orbit/internal/systemd"
+	"go.guillerg.dev/orbit/internal/reminder"
+	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
 )
 
 // colorizeReminderState applies color to a reminder state string for display.

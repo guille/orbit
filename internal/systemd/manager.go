@@ -9,7 +9,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/guille/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/config"
 )
 
 // Systemctl abstracts systemctl command execution for testability.

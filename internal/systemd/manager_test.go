@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guille/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/config"
 )
 
 func TestGenerateTaskUnits(t *testing.T) {

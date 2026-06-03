@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/config"
 )
 
 //go:embed schema.json

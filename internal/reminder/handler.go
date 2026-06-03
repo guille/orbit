@@ -4,7 +4,7 @@ package reminder
 import (
 	"time"
 
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 // StateTracker defines the interface for state operations needed by Handler.

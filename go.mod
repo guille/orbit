@@ -1,4 +1,4 @@
-module github.com/guille/orbit
+module go.guillerg.dev/orbit
 
 go 1.26.2
 

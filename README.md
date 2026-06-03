@@ -16,7 +16,7 @@ Anyone on a systemd-based Linux system who wants an easier way to manage recurri
 
 ```sh
 # Build from source
-go install github.com/guille/orbit/cmd/orbit@latest
+go install go.guillerg.dev/orbit/cmd/orbit@latest
 # or with mise
 mise use -g github:guille/orbit
 # or download a published release

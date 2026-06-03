@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/guille/orbit/internal/config"
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 // StateTracker defines the interface for state operations needed by Runner.

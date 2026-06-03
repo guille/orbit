@@ -14,12 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/config"
-	"github.com/guille/orbit/internal/picker"
-	"github.com/guille/orbit/internal/reminder"
-	"github.com/guille/orbit/internal/state"
-	"github.com/guille/orbit/internal/systemd"
-	"github.com/guille/orbit/internal/task"
+	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/picker"
+	"go.guillerg.dev/orbit/internal/reminder"
+	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
+	"go.guillerg.dev/orbit/internal/task"
 )
 
 // runInternalCmd is invoked by systemd: orbit _run NAME

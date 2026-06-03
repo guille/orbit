@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/systemd"
-	"github.com/guille/orbit/internal/task"
+	"go.guillerg.dev/orbit/internal/systemd"
+	"go.guillerg.dev/orbit/internal/task"
 )
 
 const defaultLogLines = 50

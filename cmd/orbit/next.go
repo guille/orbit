@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 func nextCmd() *cobra.Command {

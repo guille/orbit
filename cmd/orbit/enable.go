@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/picker"
-	"github.com/guille/orbit/internal/state"
-	"github.com/guille/orbit/internal/systemd"
+	"go.guillerg.dev/orbit/internal/picker"
+	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
 )
 
 func enableCmd() *cobra.Command {

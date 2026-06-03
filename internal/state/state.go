@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/guille/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/config"
 )
 
 // State represents the orbit state store.

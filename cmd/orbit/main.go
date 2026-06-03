@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 // rootCmd is the root command for the orbit CLI

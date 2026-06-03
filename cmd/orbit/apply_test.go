@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guille/orbit/internal/config"
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 func TestFormatDuration(t *testing.T) {

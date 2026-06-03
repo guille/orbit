@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/guille/orbit/internal/config"
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 func planCmd() *cobra.Command {

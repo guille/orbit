@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guille/orbit/internal/config"
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 // MockStateTracker is a simplified mock of the StateTracker interface for testing.

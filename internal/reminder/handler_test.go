@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guille/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/state"
 )
 
 type mockState struct {
