@@ -57,7 +57,7 @@ func doctorCmd() *cobra.Command {
 			allPassed = checkTaskStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
-			allPassed = checkOrbitBinary() && allPassed
+			allPassed = checkOrbitBinary(applied.OrbitBin) && allPassed
 			allPassed = checkTimerStates(applied, stateStore) && allPassed
 			checkDisabledUnits(applied, stateStore)
 
@@ -127,7 +127,7 @@ func checkAppliedConfig(cfg *config.Config, applied *state.AppliedConfig) bool {
 // checkSystemdUnits verifies systemd units match the applied (or user) config.
 func checkSystemdUnits(cfg *config.Config, applied *state.AppliedConfig) bool {
 	nextCheck("Checking systemd units")
-	manager := systemd.NewManager(resolveOrbitBinary())
+	manager := systemd.NewManager()
 	existingUnits, err := manager.ListUnits()
 	if err != nil {
 		fmt.Printf("%s: %v\n", red("FAIL"), err)
@@ -183,7 +183,7 @@ func generateDesiredUnits(manager *systemd.Manager, cfg *config.Config, applied 
 
 	if applied != nil {
 		for name, t := range applied.Tasks {
-			u, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed)
+			u, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed, applied.OrbitBin)
 			if err != nil {
 				fmt.Printf("\n   %s: Error generating units for task %s: %v\n", red("FAIL"), name, err)
 				ok = false
@@ -192,7 +192,7 @@ func generateDesiredUnits(manager *systemd.Manager, cfg *config.Config, applied 
 			units = append(units, u...)
 		}
 		for name, r := range applied.Reminders {
-			u, err := manager.GenerateReminderUnits(name, r.Schedule)
+			u, err := manager.GenerateReminderUnits(name, r.Schedule, applied.OrbitBin)
 			if err != nil {
 				fmt.Printf("\n   %s: Error generating units for reminder %s: %v\n", red("FAIL"), name, err)
 				ok = false
@@ -204,7 +204,7 @@ func generateDesiredUnits(manager *systemd.Manager, cfg *config.Config, applied 
 	}
 
 	for name, taskConfig := range cfg.Tasks {
-		u, err := manager.GenerateTaskUnits(name, taskConfig.Schedule, taskConfig.OnMissed)
+		u, err := manager.GenerateTaskUnits(name, taskConfig.Schedule, taskConfig.OnMissed, cfg.OrbitBin)
 		if err != nil {
 			fmt.Printf("\n   %s: Error generating units for task %s: %v\n", red("FAIL"), name, err)
 			ok = false
@@ -213,7 +213,7 @@ func generateDesiredUnits(manager *systemd.Manager, cfg *config.Config, applied 
 		units = append(units, u...)
 	}
 	for name, reminderConfig := range cfg.Reminders {
-		u, err := manager.GenerateReminderUnits(name, reminderConfig.Schedule)
+		u, err := manager.GenerateReminderUnits(name, reminderConfig.Schedule, cfg.OrbitBin)
 		if err != nil {
 			fmt.Printf("\n   %s: Error generating units for reminder %s: %v\n", red("FAIL"), name, err)
 			ok = false
@@ -326,13 +326,19 @@ func checkSentinelFile(stateStore *state.State) bool {
 	return true
 }
 
-// checkOrbitBinary verifies the orbit binary is resolvable.
-func checkOrbitBinary() bool {
+// checkOrbitBinary verifies the orbit binary is resolvable by systemd.
+func checkOrbitBinary(orbitBin string) bool {
 	nextCheck("Checking orbit binary")
-	binaryPath := resolveOrbitBinary()
-	if _, err := os.Stat(binaryPath); err != nil {
-		fmt.Printf("%s: orbit binary not found at %s\n", red("FAIL"), binaryPath)
-		fmt.Println("   Units referencing this path will fail. Reinstall or re-run 'orbit apply'.")
+	if orbitBin == "" {
+		fmt.Println()
+		fmt.Printf("   %s: orbit bin path not applied: run 'orbit apply' to reconcile\n", blue("INFO"))
+		return false
+	}
+	cmd := exec.Command("systemd-run", "--user", "--pipe", "--wait", "--collect", "--quiet", orbitBin, "version")
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("%s: orbit binary not found at `%s`\n", red("FAIL"), bold(orbitBin))
+		fmt.Println("   systemd needs to have orbit in its PATH or you need to set orbit_bin in your configuration.")
 		return false
 	}
 	fmt.Println(green("PASS"))

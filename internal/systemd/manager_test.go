@@ -12,9 +12,9 @@ import (
 )
 
 func TestGenerateTaskUnits(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
-	units, err := m.GenerateTaskUnits("test-task", "daily", config.OnMissedRunOnce)
+	units, err := m.GenerateTaskUnits("test-task", "daily", config.OnMissedRunOnce, "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -45,9 +45,9 @@ func TestGenerateTaskUnits(t *testing.T) {
 }
 
 func TestGenerateTaskUnits_NoSchedule(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
-	units, err := m.GenerateTaskUnits("deploy", "", "")
+	units, err := m.GenerateTaskUnits("deploy", "", "", "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -75,9 +75,9 @@ func TestGenerateTaskUnits_OnMissedPersistent(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		m := NewManager("/usr/bin/orbit")
+		m := NewManager()
 
-		units, err := m.GenerateTaskUnits("test", "daily", tc.onMissed)
+		units, err := m.GenerateTaskUnits("test", "daily", tc.onMissed, "orbit")
 		if err != nil {
 			t.Fatalf("Unexpected error for on_missed=%s: %v", tc.onMissed, err)
 		}
@@ -93,9 +93,9 @@ func TestGenerateTaskUnits_OnMissedPersistent(t *testing.T) {
 }
 
 func TestGenerateReminderUnits(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
-	units, err := m.GenerateReminderUnits("test-reminder", "hourly")
+	units, err := m.GenerateReminderUnits("test-reminder", "hourly", "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestGenerateReminderUnits(t *testing.T) {
 }
 
 func TestGenerateSnoozeTimer(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
 	snoozeTime := time.Date(2026, 5, 7, 15, 30, 0, 0, time.UTC)
 	unit, err := m.GenerateSnoozeTimer("weekly-review", snoozeTime)
@@ -143,9 +143,9 @@ func TestGenerateSnoozeTimer(t *testing.T) {
 }
 
 func TestGenerateReminderUnits_NoCommand(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
-	units, err := m.GenerateReminderUnits("test-reminder", "hourly")
+	units, err := m.GenerateReminderUnits("test-reminder", "hourly", "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestUnitDir(t *testing.T) {
 		t.Skip("HOME not set")
 	}
 
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 	dir := m.unitDir()
 	if !strings.HasSuffix(dir, ".config/systemd/user") {
 		t.Fatalf("Expected user systemd dir, got %s", dir)
@@ -180,7 +180,7 @@ func TestUnitDir(t *testing.T) {
 }
 
 func TestClassifyChanges(t *testing.T) {
-	m := NewManager("/usr/bin/orbit")
+	m := NewManager()
 
 	// All new (nothing existing) -> all creates
 	desired := []Unit{
@@ -212,7 +212,7 @@ func TestClassifyChanges(t *testing.T) {
 	// Mixed: test classification when a unit is in existing list but file can't be read.
 	t.Setenv("XDG_CONFIG_HOME", "/nonexistent-path-for-test")
 
-	m2 := &Manager{orbitPath: "/usr/bin/orbit", ctl: realSystemctl{}}
+	m2 := &Manager{ctl: realSystemctl{}}
 	// unitDir points to /nonexistent-path-for-test/systemd/user — files unreadable
 	existing := []string{"orbit-task-a.service"}
 	cs3 := m2.ClassifyChanges(desired, existing)
@@ -221,6 +221,23 @@ func TestClassifyChanges(t *testing.T) {
 	// orbit-task-b.service: not in existing -> create
 	if len(cs3.Create) != 3 {
 		t.Fatalf("Expected 3 creates (unreadable + new), got %d", len(cs3.Create))
+	}
+}
+
+func TestExecBin(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", `"orbit"`},
+		{"orbit", `"orbit"`},
+		{"/home/user/.local/share/mise/shims/orbit", `"/home/user/.local/share/mise/shims/orbit"`},
+	}
+	for _, tc := range tests {
+		got := execBin(tc.input)
+		if got != tc.want {
+			t.Errorf("execBin(%q) = %s, want %s", tc.input, got, tc.want)
+		}
 	}
 }
 
@@ -249,7 +266,7 @@ func TestListUnits_WithMock(t *testing.T) {
 	mock := &MockSystemctl{
 		Response: "orbit-task-backup.service  enabled\norbit-task-backup.timer    enabled\norbit-reminder-review.service  enabled\nsome-other.service  enabled\n",
 	}
-	m := &Manager{orbitPath: "/usr/bin/orbit", ctl: mock}
+	m := &Manager{ctl: mock}
 
 	units, err := m.ListUnits()
 	if err != nil {
@@ -272,7 +289,7 @@ func TestListUnits_WithMock(t *testing.T) {
 
 func TestListUnits_Error(t *testing.T) {
 	mock := &MockSystemctl{Err: fmt.Errorf("systemctl failed")}
-	m := &Manager{orbitPath: "/usr/bin/orbit", ctl: mock}
+	m := &Manager{ctl: mock}
 
 	_, err := m.ListUnits()
 	if err == nil {
@@ -286,7 +303,7 @@ func TestApplyUnits_WithMock(t *testing.T) {
 
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	m := &Manager{orbitPath: "/usr/bin/orbit", ctl: mock}
+	m := &Manager{ctl: mock}
 
 	units := []Unit{
 		{Name: "orbit-task-test.service", Content: "[Service]\nType=oneshot\n"},
@@ -329,7 +346,7 @@ func TestRemoveUnits_WithMock(t *testing.T) {
 
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	m := &Manager{orbitPath: "/usr/bin/orbit", ctl: mock}
+	m := &Manager{ctl: mock}
 
 	// Create files to remove
 	systemdDir := filepath.Join(tmpDir, "systemd", "user")

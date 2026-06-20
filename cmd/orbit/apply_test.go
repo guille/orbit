@@ -384,6 +384,46 @@ func TestDiffConfig_ReminderCheckUnchanged(t *testing.T) {
 	}
 }
 
+func TestDiffConfig_OrbitBinChangeMarksAllForUpdate(t *testing.T) {
+	cfg := &config.Config{
+		OrbitBin: "/new/orbit/path",
+		Tasks: map[string]config.TaskConfig{
+			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+		},
+		Reminders: map[string]config.ReminderConfig{
+			"review": {Schedule: "weekly", Message: "Do review"},
+		},
+	}
+	applied := &state.AppliedConfig{
+		OrbitBin: "/old/orbit/path",
+		Tasks: map[string]state.AppliedTaskConfig{
+			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+		},
+		Reminders: map[string]state.AppliedReminderConfig{
+			"review": {Schedule: "weekly", Message: "Do review"},
+		},
+	}
+
+	cs := diffConfig(cfg, applied)
+	if cs.nCreate != 0 {
+		t.Errorf("expected 0 creates, got %d", cs.nCreate)
+	}
+	if cs.nUpdate != 2 {
+		t.Fatalf("expected 2 updates (task + reminder), got %d", cs.nUpdate)
+	}
+	if cs.nRemove != 0 {
+		t.Errorf("expected 0 removes, got %d", cs.nRemove)
+	}
+	if cs.nUnchanged != 0 {
+		t.Errorf("expected 0 unchanged (all forced to update by OrbitBin change), got %d", cs.nUnchanged)
+	}
+	for _, c := range cs.changes {
+		if c.action != actionUpdate {
+			t.Errorf("expected all changes to be updates, got %s for %s", c.action, c.name)
+		}
+	}
+}
+
 func TestDiffConfig_AllRemoved(t *testing.T) {
 	// Empty config against existing applied → all removed
 	cfg := &config.Config{

@@ -111,7 +111,7 @@ func notifyInternalCmd() *cobra.Command {
 			}
 
 			if wasSnoozed {
-				manager := systemd.NewManager(resolveOrbitBinary())
+				manager := systemd.NewManager()
 				removeSnoozeTimer(manager, name)
 			}
 
@@ -265,7 +265,7 @@ func getDataDir() (string, error) {
 }
 
 // currentEmbedVersion should be bumped whenever embedded assets (icon.png, schema.json) change.
-const currentEmbedVersion = 1
+const currentEmbedVersion = 2
 
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.
@@ -334,17 +334,6 @@ func sendNotification(name, message string) error {
 	return exec.Command("notify-send", "--icon", iconPath, title, message).Run()
 }
 
-// resolveOrbitBinary returns the absolute path of the running orbit binary.
-// Falls back to "orbit" with a warning if the path cannot be determined.
-func resolveOrbitBinary() string {
-	if path, err := os.Executable(); err == nil {
-		return path
-	}
-	fmt.Fprintf(os.Stderr, "%s could not determine orbit binary path; using bare \"orbit\" in unit files.\n", yellow("Warning:"))
-	fmt.Fprintln(os.Stderr, "Ensure \"orbit\" is in systemd's PATH or re-run with an absolute path.")
-	return "orbit"
-}
-
 func notAppliedErr(kind entryKind, name string) error {
 	return fmt.Errorf("%s '%s' not found in applied config (run 'orbit apply' first)", kind, name)
 }
@@ -358,6 +347,7 @@ func removeSnoozeTimer(manager *systemd.Manager, name string) {
 // toAppliedConfig converts a user config to an AppliedConfig for storage in state.
 func toAppliedConfig(cfg *config.Config) *state.AppliedConfig {
 	ac := &state.AppliedConfig{
+		OrbitBin:  cfg.OrbitBin,
 		Tasks:     make(map[string]state.AppliedTaskConfig, len(cfg.Tasks)),
 		Reminders: make(map[string]state.AppliedReminderConfig, len(cfg.Reminders)),
 	}

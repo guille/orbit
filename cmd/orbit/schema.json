@@ -5,6 +5,11 @@
   "description": "Configuration file for orbit, a modern cron that uses systemd as its back-end.",
   "type": "object",
   "properties": {
+    "orbit_bin": {
+      "type": "string",
+      "description": "Path to the orbit binary.",
+      "default": "orbit"
+    },
     "tasks": {
       "description": "Task definitions. Each key is the task name.",
       "type": "object",
@@ -31,7 +36,9 @@
     "task": {
       "type": "object",
       "description": "A scheduled or manual task.",
-      "required": ["command"],
+      "required": [
+        "command"
+      ],
       "properties": {
         "command": {
           "type": "string",
@@ -44,7 +51,10 @@
         "on_missed": {
           "type": "string",
           "description": "Behavior when a scheduled run was missed. Only valid when schedule is set.",
-          "enum": ["run_once", "skip"],
+          "enum": [
+            "run_once",
+            "skip"
+          ],
           "default": "run_once"
         },
         "retry": {
@@ -74,7 +84,10 @@
     "reminder": {
       "type": "object",
       "description": "A recurring reminder with optional condition check.",
-      "required": ["schedule", "message"],
+      "required": [
+        "schedule",
+        "message"
+      ],
       "properties": {
         "command": {
           "type": "string",

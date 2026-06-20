@@ -243,7 +243,7 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	manager := systemd.NewManager(resolveOrbitBinary())
+	manager := systemd.NewManager()
 	removeSnoozeTimer(manager, name)
 
 	if reminderConfig.Command != "" {
@@ -339,7 +339,7 @@ func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error 
 
 		// Create a persistent snooze timer that triggers the reminder service.
 		// This survives reboots — systemd will catch up if the time passes while off.
-		manager := systemd.NewManager(resolveOrbitBinary())
+		manager := systemd.NewManager()
 
 		// Remove any existing snooze timer first (for re-snooze case)
 		removeSnoozeTimer(manager, name)

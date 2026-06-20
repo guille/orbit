@@ -3,6 +3,10 @@
 # See: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events
 # Test with: systemd-analyze calendar "daily"
 
+# Path or name of the orbit binary used in systemd unit files.
+# Defaults to "orbit"
+# orbit_bin = "/home/user/.local/share/mise/shims/orbit"
+
 [tasks.backup]
 command        = "rsync -av ~/Documents /mnt/backup/"
 schedule       = "*-*-* 03:00:00"  # daily at 3 AM

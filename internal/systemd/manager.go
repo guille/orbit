@@ -30,14 +30,21 @@ func (realSystemctl) Run(args ...string) (string, error) {
 
 // Manager handles systemd unit operations (always user-mode).
 type Manager struct {
-	orbitPath string    // absolute path to the orbit binary for unit files
-	ctl       Systemctl // systemctl executor
+	ctl Systemctl // systemctl executor
+}
+
+// execBin returns the quoted command token for ExecStart.
+// Empty defaults to bare "orbit".
+func execBin(orbitBin string) string {
+	if orbitBin == "" {
+		orbitBin = "orbit"
+	}
+	return fmt.Sprintf("%q", orbitBin)
 }
 
 // NewManager creates a new systemd manager for user-level units.
-// orbitPath is the absolute path to the orbit binary, used in generated unit files.
-func NewManager(orbitPath string) *Manager {
-	return &Manager{orbitPath: orbitPath, ctl: realSystemctl{}}
+func NewManager() *Manager {
+	return &Manager{ctl: realSystemctl{}}
 }
 
 // Unit represents a systemd unit file.
@@ -136,13 +143,13 @@ WantedBy=timers.target
 // GenerateTaskUnits generates units for a task.
 // If schedule is empty, only a service unit is generated (no timer).
 // Otherwise, both a service and timer unit are generated.
-func (m *Manager) GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy) ([]Unit, error) {
+func (m *Manager) GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
 		Name        string
 		ExecCommand string
 	}{
 		Name:        name,
-		ExecCommand: fmt.Sprintf(`"%s" _run %s`, m.orbitPath, name),
+		ExecCommand: fmt.Sprintf(`%s _run %s`, execBin(orbitBin), name),
 	}
 
 	var serviceBuf strings.Builder
@@ -184,13 +191,13 @@ func (m *Manager) GenerateTaskUnits(name, schedule string, onMissed config.OnMis
 
 // GenerateReminderUnits generates service and timer units for a reminder.
 // schedule is a systemd OnCalendar expression.
-func (m *Manager) GenerateReminderUnits(name, schedule string) ([]Unit, error) {
+func (m *Manager) GenerateReminderUnits(name, schedule, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
 		Name        string
 		ExecCommand string
 	}{
 		Name:        name,
-		ExecCommand: fmt.Sprintf(`"%s" _notify %s`, m.orbitPath, name),
+		ExecCommand: fmt.Sprintf(`%s _notify %s`, execBin(orbitBin), name),
 	}
 
 	var serviceBuf strings.Builder

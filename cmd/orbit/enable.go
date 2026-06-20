@@ -113,7 +113,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 		names = []string{name}
 	}
 
-	manager := systemd.NewManager(resolveOrbitBinary())
+	manager := systemd.NewManager()
 	var changed int
 	var toStop, toStart []string
 

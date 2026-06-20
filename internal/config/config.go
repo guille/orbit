@@ -12,6 +12,7 @@ import (
 
 // Config represents the orbit configuration structure.
 type Config struct {
+	OrbitBin  string                    `toml:"orbit_bin"`
 	Tasks     map[string]TaskConfig     `toml:"tasks"`
 	Reminders map[string]ReminderConfig `toml:"reminders"`
 }
@@ -73,6 +74,9 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults fills in default values for optional fields.
 func (c *Config) applyDefaults() {
+	if c.OrbitBin == "" {
+		c.OrbitBin = "orbit"
+	}
 	for name, t := range c.Tasks {
 		if t.OnMissed == "" && t.Schedule != "" {
 			t.OnMissed = OnMissedRunOnce

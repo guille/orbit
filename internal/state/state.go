@@ -44,6 +44,7 @@ type stateData struct {
 // AppliedConfig stores the config as it was when `orbit apply` was last run.
 // This is the source of truth for _run, _notify, and all non-apply commands.
 type AppliedConfig struct {
+	OrbitBin  string                           `json:"orbit_bin"`
 	Tasks     map[string]AppliedTaskConfig     `json:"tasks"`
 	Reminders map[string]AppliedReminderConfig `json:"reminders"`
 }

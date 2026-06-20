@@ -38,6 +38,8 @@ type configChange struct {
 	newTask     *config.TaskConfig
 	oldReminder *state.AppliedReminderConfig
 	newReminder *config.ReminderConfig
+	oldOrbitBin string
+	newOrbitBin string
 }
 
 // configChangeSet groups all config-level changes.
@@ -116,18 +118,18 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 		fmt.Println("No config changes, regenerating unit files...")
 	}
 
-	manager := systemd.NewManager(resolveOrbitBinary())
+	manager := systemd.NewManager()
 
 	var allUnits []systemd.Unit
 	for name, t := range cfg.Tasks {
-		units, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed)
+		units, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed, cfg.OrbitBin)
 		if err != nil {
 			return fmt.Errorf("generating units for task %s: %w", name, err)
 		}
 		allUnits = append(allUnits, units...)
 	}
 	for name, r := range cfg.Reminders {
-		units, err := manager.GenerateReminderUnits(name, r.Schedule)
+		units, err := manager.GenerateReminderUnits(name, r.Schedule, cfg.OrbitBin)
 		if err != nil {
 			return fmt.Errorf("generating units for reminder %s: %w", name, err)
 		}
@@ -224,6 +226,7 @@ func diffConfig(cfg *config.Config, applied *state.AppliedConfig) configChangeSe
 			Reminders: make(map[string]state.AppliedReminderConfig),
 		}
 	}
+	binPathChanged := applied.OrbitBin != cfg.OrbitBin
 
 	for name, t := range cfg.Tasks {
 		old, existed := applied.Tasks[name]
@@ -233,10 +236,11 @@ func diffConfig(cfg *config.Config, applied *state.AppliedConfig) configChangeSe
 				newTask: &t,
 			})
 			cs.nCreate++
-		} else if taskChanged(old, t) {
+		} else if taskChanged(old, t) || binPathChanged {
 			cs.changes = append(cs.changes, configChange{
 				name: name, kind: kindTask, action: actionUpdate,
 				oldTask: &old, newTask: &t,
+				oldOrbitBin: applied.OrbitBin, newOrbitBin: cfg.OrbitBin,
 			})
 			cs.nUpdate++
 		} else {
@@ -260,10 +264,11 @@ func diffConfig(cfg *config.Config, applied *state.AppliedConfig) configChangeSe
 				newReminder: &r,
 			})
 			cs.nCreate++
-		} else if reminderChanged(old, r) {
+		} else if reminderChanged(old, r) || binPathChanged {
 			cs.changes = append(cs.changes, configChange{
 				name: name, kind: kindReminder, action: actionUpdate,
 				oldReminder: &old, newReminder: &r,
+				oldOrbitBin: applied.OrbitBin, newOrbitBin: cfg.OrbitBin,
 			})
 			cs.nUpdate++
 		} else {
@@ -368,6 +373,7 @@ func printNewConfigSummary(c configChange) {
 
 // printConfigDiff shows field-level changes for an updated entry.
 func printConfigDiff(c configChange) {
+	diffField("orbit_bin", c.oldOrbitBin, c.newOrbitBin)
 	switch c.kind {
 	case kindTask:
 		old, new := c.oldTask, c.newTask
