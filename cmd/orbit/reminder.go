@@ -260,6 +260,7 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Running: %s\n", reminderConfig.Command)
 			c := exec.Command("sh", "-c", reminderConfig.Command)
 			c.Stdout = os.Stdout
+			c.Stdin = os.Stdin
 			c.Stderr = os.Stderr
 			if err := c.Run(); err != nil {
 				fmt.Fprintf(os.Stderr, "%s command failed: %v\n", yellow("Warning:"), err)
