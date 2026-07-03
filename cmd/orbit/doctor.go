@@ -57,7 +57,7 @@ func doctorCmd() *cobra.Command {
 			allPassed = checkTaskStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
-			allPassed = checkOrbitBinary(applied) && allPassed
+			allPassed = checkServiceUnits(applied) && allPassed
 			allPassed = checkTimerStates(applied, stateStore) && allPassed
 			checkDisabledUnits(applied, stateStore)
 
@@ -309,25 +309,35 @@ func checkSentinelFile(stateStore *state.State) bool {
 	return true
 }
 
-// checkOrbitBinary verifies the orbit binary is resolvable by systemd.
-func checkOrbitBinary(applied *state.AppliedConfig) bool {
-	nextCheck("Checking orbit binary")
+// checkServiceUnits runs systemd-analyze verify on all deployed service unit
+// files to detect configuration errors (bad ExecStart paths, missing binaries, etc).
+func checkServiceUnits(applied *state.AppliedConfig) bool {
+	nextCheck("Verifying service units")
 	if applied == nil {
 		fmt.Println(dim("SKIP") + " (no applied config)")
 		return true
 	}
 
-	orbitBin := applied.OrbitBin
-	if orbitBin == "" {
-		fmt.Println()
-		fmt.Printf("   %s: orbit bin path not applied: run 'orbit apply' to reconcile\n", blue("INFO"))
-		return false
+	manager := systemd.NewManager()
+	unitDir := manager.UnitDir()
+
+	var paths []string
+	for name := range applied.Tasks {
+		paths = append(paths, filepath.Join(unitDir, systemd.TaskServiceName(name)))
 	}
-	cmd := exec.Command("systemd-run", "--user", "--pipe", "--wait", "--collect", "--quiet", orbitBin, "version")
-	err := cmd.Run()
+	for name := range applied.Reminders {
+		paths = append(paths, filepath.Join(unitDir, systemd.ReminderServiceName(name)))
+	}
+
+	if len(paths) == 0 {
+		fmt.Println(green("PASS"))
+		return true
+	}
+
+	output, err := manager.VerifyUnits(paths...)
 	if err != nil {
-		fmt.Printf("%s: orbit binary not found at `%s`\n", red("FAIL"), bold(orbitBin))
-		fmt.Println("   systemd needs to have orbit in its PATH or you need to set orbit_bin in your configuration.")
+		fmt.Println(red("FAIL"))
+		fmt.Print(output)
 		return false
 	}
 	fmt.Println(green("PASS"))

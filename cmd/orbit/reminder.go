@@ -349,9 +349,16 @@ func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error 
 		if err != nil {
 			return fmt.Errorf("generating snooze timer: %w", err)
 		}
-		if err := manager.ApplyUnits([]systemd.Unit{snoozeUnit}); err != nil {
-			fmt.Fprintf(os.Stderr, "%s failed to create snooze timer: %v\n", yellow("Warning:"), err)
+		tmpDir, cleanup, err := manager.WriteUnits([]systemd.Unit{snoozeUnit})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s failed to write snooze timer: %v\n", yellow("Warning:"), err)
 			fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
+		} else {
+			defer cleanup()
+			if err := manager.InstallUnits([]systemd.Unit{snoozeUnit}, tmpDir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s failed to create snooze timer: %v\n", yellow("Warning:"), err)
+				fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
+			}
 		}
 
 		fmt.Printf("Reminder '%s' %s (fires %s)\n", bold(name), yellow("snoozed"), formatTime(snoozeUntil))

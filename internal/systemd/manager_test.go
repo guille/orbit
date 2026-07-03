@@ -165,7 +165,7 @@ func TestUnitDir(t *testing.T) {
 	}
 
 	m := NewManager()
-	dir := m.unitDir()
+	dir := m.UnitDir()
 	if !strings.HasSuffix(dir, ".config/systemd/user") {
 		t.Fatalf("Expected user systemd dir, got %s", dir)
 	}
@@ -173,7 +173,7 @@ func TestUnitDir(t *testing.T) {
 	// XDG_CONFIG_HOME override
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/test-xdg")
 
-	dir2 := m.unitDir()
+	dir2 := m.UnitDir()
 	if dir2 != "/tmp/test-xdg/systemd/user" {
 		t.Fatalf("Expected XDG-based dir, got %s", dir2)
 	}
@@ -241,6 +241,158 @@ func TestExecBin(t *testing.T) {
 	}
 }
 
+func TestVerifyUnits(t *testing.T) {
+	m := NewManager()
+
+	t.Run("valid unit", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "valid.service")
+		content := "[Unit]\nDescription=Test\n[Service]\nType=oneshot\nExecStart=/usr/bin/env true\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		out, err := m.VerifyUnits(path)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v\noutput: %s", err, out)
+		}
+	})
+
+	t.Run("bad ExecStart path", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "bad.service")
+		content := "[Unit]\nDescription=Test\n[Service]\nType=oneshot\nExecStart=\"~/.local/bin/orbit\" _run test\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		out, err := m.VerifyUnits(path)
+		if err == nil {
+			t.Fatal("expected error for bad path, got none")
+		}
+		if out == "" {
+			t.Fatal("expected non-empty output on failure")
+		}
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		out, err := m.VerifyUnits("/nonexistent/path/unit.service")
+		if err == nil {
+			t.Fatal("expected error for nonexistent file, got none")
+		}
+		if out == "" {
+			t.Fatal("expected non-empty output on failure")
+		}
+	})
+
+	t.Run("multiple units", func(t *testing.T) {
+		dir := t.TempDir()
+		good := filepath.Join(dir, "good.service")
+		bad := filepath.Join(dir, "bad.service")
+		mustWrite(t, good, "[Service]\nType=oneshot\nExecStart=/usr/bin/env true\n")
+		mustWrite(t, bad, "[Service]\nType=oneshot\nExecStart=\"~/.local/bin/orbit\" _run test\n")
+
+		out, err := m.VerifyUnits(good, bad)
+		if err == nil {
+			t.Fatal("expected error when one unit is invalid, got none")
+		}
+		if out == "" {
+			t.Fatal("expected non-empty output on failure")
+		}
+	})
+}
+
+func TestInstallUnits_WithMock(t *testing.T) {
+	tmpDir := t.TempDir()
+	systemdDir := filepath.Join(tmpDir, "systemd", "user")
+	stagingDir := filepath.Join(systemdDir, ".orbit-staging-test")
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	svcContent := "[Service]\nType=oneshot\nExecStart=/usr/bin/env true\n"
+	tmrContent := "[Timer]\nOnCalendar=daily\n"
+
+	// Write files to staging
+	mustWrite(t, filepath.Join(stagingDir, "orbit-task-test.service"), svcContent)
+	mustWrite(t, filepath.Join(stagingDir, "orbit-task-test.timer"), tmrContent)
+
+	t.Run("service and timer", func(t *testing.T) {
+		mock := &MockSystemctl{}
+		m := &Manager{ctl: mock}
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+		// Re-create staging dir (cleaned by t.TempDir)
+		mustMkdirAll(t, stagingDir)
+		mustWrite(t, filepath.Join(stagingDir, "orbit-task-test.service"), svcContent)
+		mustWrite(t, filepath.Join(stagingDir, "orbit-task-test.timer"), tmrContent)
+
+		units := []Unit{
+			{Name: "orbit-task-test.service", Content: svcContent},
+			{Name: "orbit-task-test.timer", Content: tmrContent},
+		}
+
+		err := m.InstallUnits(units, stagingDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Files moved to systemd dir
+		svc := filepath.Join(systemdDir, "orbit-task-test.service")
+		tmr := filepath.Join(systemdDir, "orbit-task-test.timer")
+		if _, err := os.Stat(svc); os.IsNotExist(err) {
+			t.Fatal("service file not moved to systemd dir")
+		}
+		if _, err := os.Stat(tmr); os.IsNotExist(err) {
+			t.Fatal("timer file not moved to systemd dir")
+		}
+		// Files removed from staging
+		if _, err := os.Stat(filepath.Join(stagingDir, "orbit-task-test.service")); !os.IsNotExist(err) {
+			t.Error("service file still in staging dir")
+		}
+
+		// daemon-reload + enable --now
+		if len(mock.Calls) != 2 {
+			t.Fatalf("expected 2 systemctl calls, got %d: %v", len(mock.Calls), mock.Calls)
+		}
+		if mock.Calls[0][1] != "daemon-reload" {
+			t.Errorf("expected daemon-reload, got %v", mock.Calls[0])
+		}
+		if mock.Calls[1][1] != "enable" {
+			t.Errorf("expected enable, got %v", mock.Calls[1])
+		}
+		if !strings.HasSuffix(mock.Calls[1][3], "orbit-task-test.timer") {
+			t.Errorf("expected timer in enable args, got %v", mock.Calls[1])
+		}
+	})
+
+	t.Run("service only (no timer)", func(t *testing.T) {
+		mock := &MockSystemctl{}
+		m := &Manager{ctl: mock}
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+		mustMkdirAll(t, stagingDir)
+		mustWrite(t, filepath.Join(stagingDir, "orbit-task-manual.service"), svcContent)
+
+		units := []Unit{
+			{Name: "orbit-task-manual.service", Content: svcContent},
+		}
+
+		err := m.InstallUnits(units, stagingDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Only daemon-reload, no enable
+		if len(mock.Calls) != 1 {
+			t.Fatalf("expected 1 systemctl call (daemon-reload only), got %d: %v", len(mock.Calls), mock.Calls)
+		}
+		if mock.Calls[0][1] != "daemon-reload" {
+			t.Errorf("expected daemon-reload, got %v", mock.Calls[0])
+		}
+	})
+}
+
 func assertContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !strings.Contains(s, substr) {
@@ -260,6 +412,22 @@ type MockSystemctl struct {
 func (m *MockSystemctl) Run(args ...string) (string, error) {
 	m.Calls = append(m.Calls, args)
 	return m.Response, m.Err
+}
+
+// mustMkdirAll creates a directory tree, failing the test on error.
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// mustWrite writes a file, failing the test on error.
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestListUnits_WithMock(t *testing.T) {
@@ -297,49 +465,6 @@ func TestListUnits_Error(t *testing.T) {
 	}
 }
 
-func TestApplyUnits_WithMock(t *testing.T) {
-	tmpDir := t.TempDir()
-	mock := &MockSystemctl{}
-
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	m := &Manager{ctl: mock}
-
-	units := []Unit{
-		{Name: "orbit-task-test.service", Content: "[Service]\nType=oneshot\n"},
-		{Name: "orbit-task-test.timer", Content: "[Timer]\nOnCalendar=daily\n"},
-	}
-
-	err := m.ApplyUnits(units)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have called daemon-reload, then enable --now for the timer
-	if len(mock.Calls) != 2 {
-		t.Fatalf("expected 2 systemctl calls, got %d: %v", len(mock.Calls), mock.Calls)
-	}
-
-	// First call: daemon-reload
-	if mock.Calls[0][1] != "daemon-reload" {
-		t.Errorf("expected daemon-reload, got %v", mock.Calls[0])
-	}
-	// Second call: enable --now timer
-	if mock.Calls[1][1] != "enable" {
-		t.Errorf("expected enable, got %v", mock.Calls[1])
-	}
-
-	// Verify files were written
-	systemdDir := filepath.Join(tmpDir, "systemd", "user")
-	content, err := os.ReadFile(filepath.Join(systemdDir, "orbit-task-test.service"))
-	if err != nil {
-		t.Fatalf("failed to read service file: %v", err)
-	}
-	if string(content) != "[Service]\nType=oneshot\n" {
-		t.Errorf("unexpected service content: %s", content)
-	}
-}
-
 func TestRemoveUnits_WithMock(t *testing.T) {
 	tmpDir := t.TempDir()
 	mock := &MockSystemctl{}
@@ -350,12 +475,9 @@ func TestRemoveUnits_WithMock(t *testing.T) {
 
 	// Create files to remove
 	systemdDir := filepath.Join(tmpDir, "systemd", "user")
-	//nolint:errcheck
-	os.MkdirAll(systemdDir, 0755)
-	//nolint:errcheck
-	os.WriteFile(filepath.Join(systemdDir, "orbit-task-old.service"), []byte("x"), 0644)
-	//nolint:errcheck
-	os.WriteFile(filepath.Join(systemdDir, "orbit-task-old.timer"), []byte("x"), 0644)
+	mustMkdirAll(t, systemdDir)
+	mustWrite(t, filepath.Join(systemdDir, "orbit-task-old.service"), "x")
+	mustWrite(t, filepath.Join(systemdDir, "orbit-task-old.timer"), "x")
 
 	units := []Unit{
 		{Name: "orbit-task-old.service"},

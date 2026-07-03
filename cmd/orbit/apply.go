@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -137,8 +139,25 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 	}
 
 	if len(allUnits) > 0 {
-		if err := manager.ApplyUnits(allUnits); err != nil {
-			return fmt.Errorf("applying systemd units: %w", err)
+		tmpDir, cleanup, err := manager.WriteUnits(allUnits)
+		if err != nil {
+			return fmt.Errorf("writing units: %w", err)
+		}
+		defer cleanup()
+
+		var unitPaths []string
+		for _, u := range allUnits {
+			unitPaths = append(unitPaths, filepath.Join(tmpDir, u.Name))
+		}
+
+		output, err := manager.VerifyUnits(unitPaths...)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n%s", red("unit verification failed"), output)
+			return fmt.Errorf("unit verification failed")
+		}
+
+		if err := manager.InstallUnits(allUnits, tmpDir); err != nil {
+			return fmt.Errorf("installing units: %w", err)
 		}
 	}
 
