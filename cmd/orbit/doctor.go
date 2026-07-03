@@ -53,7 +53,7 @@ func doctorCmd() *cobra.Command {
 			applied := stateStore.GetAppliedConfig()
 
 			allPassed = checkAppliedConfig(cfg, applied) && allPassed
-			allPassed = checkSystemdUnits(cfg, applied) && allPassed
+			allPassed = checkSystemdUnitsDrift(cfg, applied) && allPassed
 			allPassed = checkTaskStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
@@ -124,9 +124,9 @@ func checkAppliedConfig(cfg *config.Config, applied *state.AppliedConfig) bool {
 	return false
 }
 
-// checkSystemdUnits verifies systemd units match the applied (or user) config.
-func checkSystemdUnits(cfg *config.Config, applied *state.AppliedConfig) bool {
-	nextCheck("Checking systemd units")
+// checkSystemdUnitsDrift verifies systemd units match the applied config.
+func checkSystemdUnitsDrift(cfg *config.Config, applied *state.AppliedConfig) bool {
+	nextCheck("Checking systemd units for drift")
 	manager := systemd.NewManager()
 	existingUnits, err := manager.ListUnits()
 	if err != nil {
@@ -134,7 +134,7 @@ func checkSystemdUnits(cfg *config.Config, applied *state.AppliedConfig) bool {
 		return false
 	}
 
-	desiredUnits, ok := generateDesiredUnits(manager, cfg, applied)
+	desiredUnits, ok := generateDesiredUnits(manager, applied)
 	if !ok {
 		return false
 	}
@@ -177,7 +177,7 @@ func checkSystemdUnits(cfg *config.Config, applied *state.AppliedConfig) bool {
 }
 
 // generateDesiredUnits builds the expected units from applied config.
-func generateDesiredUnits(manager *systemd.Manager, cfg *config.Config, applied *state.AppliedConfig) ([]systemd.Unit, bool) {
+func generateDesiredUnits(manager *systemd.Manager, applied *state.AppliedConfig) ([]systemd.Unit, bool) {
 	var units []systemd.Unit
 	ok := true
 
