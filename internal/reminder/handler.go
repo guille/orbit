@@ -2,6 +2,8 @@
 package reminder
 
 import (
+	"errors"
+	"os/exec"
 	"time"
 
 	"go.guillerg.dev/orbit/internal/state"
@@ -14,14 +16,34 @@ type StateTracker interface {
 	Save() error
 }
 
+// CheckRunner runs a reminder's check command and reports its exit code.
+type CheckRunner interface {
+	Run(command string) (exitCode int, err error)
+}
+
+// shellCheckRunner runs checks via sh -c, discarding output.
+type shellCheckRunner struct{}
+
+func (shellCheckRunner) Run(command string) (int, error) {
+	err := exec.Command("sh", "-c", command).Run()
+	if err == nil {
+		return 0, nil
+	}
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return exitErr.ExitCode(), nil
+	}
+	return 1, err
+}
+
 // Handler manages reminder state transitions.
 type Handler struct {
 	State StateTracker
+	Check CheckRunner
 }
 
-// NewHandler creates a new reminder handler.
+// NewHandler creates a new reminder handler with the default shell check runner.
 func NewHandler(s StateTracker) *Handler {
-	return &Handler{State: s}
+	return &Handler{State: s, Check: shellCheckRunner{}}
 }
 
 // Fire records that a reminder has been triggered. If the reminder is
@@ -42,6 +64,28 @@ func (h *Handler) Fire(name string) error {
 
 	h.State.SetReminderState(name, rs)
 	return h.State.Save()
+}
+
+// CheckPasses runs the reminder's check command, records the outcome in state,
+// and reports whether the reminder should fire. An empty check always passes
+// and records nothing. When the check runs, LastCheckExitCode/LastCheckAt are
+// persisted regardless of the result.
+func (h *Handler) CheckPasses(name, check string) (bool, error) {
+	if check == "" {
+		return true, nil
+	}
+
+	exitCode, runErr := h.Check.Run(check)
+
+	rs := h.State.GetReminderState(name)
+	rs.LastCheckExitCode = &exitCode
+	rs.LastCheckAt = time.Now()
+	h.State.SetReminderState(name, rs)
+	if err := h.State.Save(); err != nil {
+		return false, err
+	}
+
+	return exitCode == 0 && runErr == nil, nil
 }
 
 // Ack marks a reminder as acknowledged, clearing overdue count and snooze.

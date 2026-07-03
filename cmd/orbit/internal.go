@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -72,29 +70,14 @@ func notifyInternalCmd() *cobra.Command {
 				return notAppliedErr(kindReminder, name)
 			}
 
-			if reminderConfig.Check != "" {
-				checkCmd := exec.Command("sh", "-c", reminderConfig.Check)
-				checkErr := checkCmd.Run()
+			h := reminder.NewHandler(stateStore)
 
-				rs := stateStore.GetReminderState(name)
-				exitCode := 0
-				if checkErr != nil {
-					exitCode = 1
-					if exitError, ok := errors.AsType[*exec.ExitError](checkErr); ok {
-						exitCode = exitError.ExitCode()
-					}
-				}
-				rs.LastCheckExitCode = &exitCode
-				now := time.Now()
-				rs.LastCheckAt = now
-				stateStore.SetReminderState(name, rs)
-
-				if checkErr != nil {
-					if saveErr := stateStore.Save(); saveErr != nil {
-						return fmt.Errorf("saving check state: %w", saveErr)
-					}
-					return nil
-				}
+			ok, err = h.CheckPasses(name, reminderConfig.Check)
+			if err != nil {
+				return fmt.Errorf("saving check state: %w", err)
+			}
+			if !ok {
+				return nil
 			}
 
 			if err := sendNotification(name, reminderConfig.Message); err != nil {
@@ -104,7 +87,6 @@ func notifyInternalCmd() *cobra.Command {
 			// Check if snoozed before Fire() changes state
 			wasSnoozed := stateStore.GetReminderState(name).State == state.StateSnoozed
 
-			h := reminder.NewHandler(stateStore)
 			if err := h.Fire(name); err != nil {
 				return fmt.Errorf("saving state: %w", err)
 			}

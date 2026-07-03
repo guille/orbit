@@ -1,6 +1,7 @@
 package reminder
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -272,5 +273,99 @@ func TestHandler_Fire_OnAcknowledged(t *testing.T) {
 	}
 	if rs.OverdueCount != 1 {
 		t.Errorf("expected overdue count reset to 1, got %d", rs.OverdueCount)
+	}
+}
+
+type fakeCheck struct {
+	exitCode int
+	err      error
+	ran      bool
+}
+
+func (f *fakeCheck) Run(string) (int, error) {
+	f.ran = true
+	return f.exitCode, f.err
+}
+
+func TestHandler_CheckPasses_Empty(t *testing.T) {
+	ms := newMockState()
+	fc := &fakeCheck{}
+	h := &Handler{State: ms, Check: fc}
+
+	ok, err := h.CheckPasses("test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("empty check should pass")
+	}
+	if fc.ran {
+		t.Error("empty check should not invoke the runner")
+	}
+	if ms.saved {
+		t.Error("empty check should not touch state")
+	}
+	if ms.reminders["test"].LastCheckExitCode != nil {
+		t.Error("empty check should not record an exit code")
+	}
+}
+
+func TestHandler_CheckPasses_Success(t *testing.T) {
+	ms := newMockState()
+	h := &Handler{State: ms, Check: &fakeCheck{exitCode: 0}}
+
+	ok, err := h.CheckPasses("test", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("exit 0 should pass")
+	}
+	rs := ms.reminders["test"]
+	if rs.LastCheckExitCode == nil || *rs.LastCheckExitCode != 0 {
+		t.Errorf("expected recorded exit code 0, got %v", rs.LastCheckExitCode)
+	}
+	if rs.LastCheckAt.IsZero() {
+		t.Error("expected LastCheckAt to be set")
+	}
+	if !ms.saved {
+		t.Error("expected Save to be called")
+	}
+}
+
+func TestHandler_CheckPasses_Failure(t *testing.T) {
+	ms := newMockState()
+	h := &Handler{State: ms, Check: &fakeCheck{exitCode: 3}}
+
+	ok, err := h.CheckPasses("test", "false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("non-zero exit should not pass")
+	}
+	rs := ms.reminders["test"]
+	if rs.LastCheckExitCode == nil || *rs.LastCheckExitCode != 3 {
+		t.Errorf("expected recorded exit code 3, got %v", rs.LastCheckExitCode)
+	}
+	if !ms.saved {
+		t.Error("expected Save to be called even on failure")
+	}
+}
+
+func TestHandler_CheckPasses_RunError(t *testing.T) {
+	ms := newMockState()
+	// Command couldn't be started: suppress the reminder but record the outcome.
+	h := &Handler{State: ms, Check: &fakeCheck{exitCode: 1, err: errors.New("exec: not found")}}
+
+	ok, err := h.CheckPasses("test", "bogus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("a start error should not pass")
+	}
+	if !ms.saved {
+		t.Error("expected Save to be called")
 	}
 }
