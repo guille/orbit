@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
 )
 
 func listCmd() *cobra.Command {
@@ -37,6 +38,12 @@ func listCmd() *cobra.Command {
 
 			var rows []row
 
+			taskNames := make([]string, 0, len(applied.Tasks))
+			for name := range applied.Tasks {
+				taskNames = append(taskNames, name)
+			}
+			failed, _ := systemd.NewManager().FailedServices(taskNames)
+
 			for name, taskConfig := range applied.Tasks {
 				ts := stateStore.GetTaskState(name)
 
@@ -55,7 +62,7 @@ func listCmd() *cobra.Command {
 					kind:     kindTask,
 					schedule: taskConfig.Schedule,
 					nextRun:  nextRunStr,
-					status:   taskStatusString(ts),
+					status:   taskStatusString(ts, failed[name] != ""),
 				})
 			}
 
@@ -112,12 +119,16 @@ func reminderStatusString(rs state.ReminderState) string {
 }
 
 // taskStatusString returns a colored display string for a task's current status.
-func taskStatusString(ts state.TaskState) string {
+// systemdFailed reports whether the task's last run failed at the systemd level,
+// covering failures the persisted state never recorded.
+func taskStatusString(ts state.TaskState, systemdFailed bool) string {
 	switch {
 	case ts.Disabled:
 		return dim("disabled")
 	case ts.ConsecutiveFailures > 0:
 		return red(fmt.Sprintf("failed (%d)", ts.ConsecutiveFailures))
+	case systemdFailed:
+		return red("failed")
 	case ts.LastRun.IsZero():
 		return dim("new")
 	default:

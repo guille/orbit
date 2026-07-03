@@ -465,6 +465,94 @@ func TestListUnits_Error(t *testing.T) {
 	}
 }
 
+func TestFailedServices_WithMock(t *testing.T) {
+	// systemctl show prints one property block per unit, separated by a blank line.
+	// "ok" succeeded, "bad" failed, "gone" is unknown to systemd (empty Result).
+	// "sig" puts Result before Id to exercise order-independent parsing.
+	mock := &MockSystemctl{
+		Response: "Id=orbit-task-ok.service\nResult=success\n" +
+			"\n" +
+			"Id=orbit-task-bad.service\nResult=exit-code\n" +
+			"\n" +
+			"Result=signal\nId=orbit-task-sig.service\n" +
+			"\n" +
+			"Id=orbit-task-gone.service\nResult=\n",
+	}
+	m := &Manager{ctl: mock}
+
+	failed, err := m.FailedServices([]string{"ok", "bad", "sig", "gone"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]string{"bad": "exit-code", "sig": "signal"}
+	if len(failed) != len(want) {
+		t.Fatalf("expected %v, got %v", want, failed)
+	}
+	for name, reason := range want {
+		if failed[name] != reason {
+			t.Errorf("expected %s=%s, got %q", name, reason, failed[name])
+		}
+	}
+
+	// A single batched call carrying --user, the show subcommand, the Id+Result
+	// property flag, and every requested unit.
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+	args := mock.Calls[0]
+	if args[0] != "--user" || args[1] != "show" {
+		t.Fatalf("expected `--user show ...`, got %v", args)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--property=Id,Result", "orbit-task-ok.service", "orbit-task-bad.service", "orbit-task-sig.service", "orbit-task-gone.service"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected args to contain %q, got %v", want, args)
+		}
+	}
+}
+
+func TestFailedServices_IgnoresUnrequestedUnits(t *testing.T) {
+	// A block for a unit we never asked about must not leak into the result.
+	mock := &MockSystemctl{
+		Response: "Id=orbit-task-other.service\nResult=exit-code\n",
+	}
+	m := &Manager{ctl: mock}
+
+	failed, err := m.FailedServices([]string{"asked"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Errorf("expected no failures, got %v", failed)
+	}
+}
+
+func TestFailedServices_Empty(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	failed, err := m.FailedServices(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if failed != nil {
+		t.Errorf("expected nil map, got %v", failed)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected no systemctl calls for empty input, got %d", len(mock.Calls))
+	}
+}
+
+func TestFailedServices_Error(t *testing.T) {
+	mock := &MockSystemctl{Err: fmt.Errorf("systemctl failed")}
+	m := &Manager{ctl: mock}
+
+	if _, err := m.FailedServices([]string{"x"}); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestRemoveUnits_WithMock(t *testing.T) {
 	tmpDir := t.TempDir()
 	mock := &MockSystemctl{}

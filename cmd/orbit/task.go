@@ -104,6 +104,8 @@ func taskListCmd() *cobra.Command {
 			}
 			sortNatural(names)
 
+			failed, _ := systemd.NewManager().FailedServices(names)
+
 			for _, name := range names {
 				taskConfig := applied.Tasks[name]
 				ts := stateStore.GetTaskState(name)
@@ -118,7 +120,7 @@ func taskListCmd() *cobra.Command {
 					nextRunStr = resolveNextRun(taskConfig.Schedule)
 				}
 
-				fmt.Printf("%-20s %-20s %-30s %-15s\n", name, lastRunStr, nextRunStr, taskStatusString(ts))
+				fmt.Printf("%-20s %-20s %-30s %-15s\n", name, lastRunStr, nextRunStr, taskStatusString(ts, failed[name] != ""))
 			}
 			return nil
 		},
@@ -165,9 +167,9 @@ func taskStatusCmd() *cobra.Command {
 			fmt.Printf("Retry delay:           %s\n", taskConfig.Retry.Delay)
 			fmt.Println()
 			fmt.Printf("Last run:              %s\n", formatTime(ts.LastRun))
-			systemdResult, err := systemd.NewManager().ServiceResult(name)
-			if err == nil && systemdResult != "" && systemdResult != "success" {
-				fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit task logs %s')", systemdResult, name)))
+			failed, _ := systemd.NewManager().FailedServices([]string{name})
+			if reason, ok := failed[name]; ok {
+				fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit task logs %s')", reason, name)))
 			} else {
 				exitCodeStr := green("0")
 				if ts.LastExitCode != 0 {

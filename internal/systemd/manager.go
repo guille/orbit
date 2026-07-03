@@ -331,15 +331,54 @@ func (m *Manager) RemoveUnits(units []Unit) error {
 	return m.daemonReload()
 }
 
-// ServiceResult returns the last Result of a task's service unit via systemctl show.
-// Returns "success", "exit-code", "signal", etc. Returns an error if the unit
-// doesn't exist or systemctl fails.
-func (m *Manager) ServiceResult(taskName string) (string, error) {
-	output, err := m.systemctlOutput("show", TaskServiceName(taskName), "--property=Result", "--value")
-	if err != nil {
-		return "", err
+// FailedServices returns, for each given task whose service unit's last run did
+// not succeed, the systemd failure Result ("exit-code", "signal", "core-dump", ...).
+// Successful, never-run, and unknown units are omitted. All units are queried in a
+// single `systemctl show` invocation.
+func (m *Manager) FailedServices(taskNames []string) (map[string]string, error) {
+	if len(taskNames) == 0 {
+		return nil, nil
 	}
-	return strings.TrimSpace(output), nil
+
+	unitToTask := make(map[string]string, len(taskNames))
+	args := make([]string, 0, len(taskNames)+1)
+	args = append(args, "--property=Id,Result")
+	for _, name := range taskNames {
+		unit := TaskServiceName(name)
+		unitToTask[unit] = name
+		args = append(args, unit)
+	}
+
+	output, err := m.systemctlOutput("show", args...)
+	if err != nil {
+		return nil, err
+	}
+
+	// systemctl show prints one property block per unit, separated by a blank
+	// line. Parse each block by key so property order doesn't matter.
+	failed := make(map[string]string)
+	for block := range strings.SplitSeq(strings.TrimSpace(output), "\n\n") {
+		var id, result string
+		for line := range strings.SplitSeq(block, "\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(key) {
+			case "Id":
+				id = strings.TrimSpace(value)
+			case "Result":
+				result = strings.TrimSpace(value)
+			}
+		}
+		if result != "" && result != "success" {
+			if task, ok := unitToTask[id]; ok {
+				failed[task] = result
+			}
+		}
+	}
+
+	return failed, nil
 }
 
 // ListUnits returns the names of all orbit-managed units known to systemd.
