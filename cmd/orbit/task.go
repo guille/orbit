@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/systemd"
-	"go.guillerg.dev/orbit/internal/task"
 )
 
 const defaultLogLines = 50
@@ -34,7 +33,7 @@ func taskRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               "run NAME",
 		Short:             "Run a task immediately",
-		Long:              `Run a task immediately, executing the command directly with output streamed to the terminal.`,
+		Long:              `Run a task immediately via systemd. Output is captured to the journal and printed after the run completes.`,
 		Args:              cobra.MaximumNArgs(1),
 		Aliases:           []string{"r"},
 		ValidArgsFunction: completeNames(taskNames),
@@ -53,7 +52,6 @@ func taskRunCmd() *cobra.Command {
 				return notAppliedErr(kindTask, name)
 			}
 
-			// Run directly using the same code path as orbit _run
 			fmt.Printf("Running task %q\n", name)
 			fmt.Printf("  command: %s\n", taskConfig.Command)
 			attempts := taskConfig.Retry.Attempts
@@ -62,19 +60,43 @@ func taskRunCmd() *cobra.Command {
 			}
 			fmt.Println()
 
-			runner := task.NewRunner(stateStore)
+			start := time.Now()
+			runErr := systemd.NewManager().RunTaskNow(name)
 
-			if err := runner.Run(name, taskConfig.Command, taskConfig.Retry.ToRetryConfig()); err != nil {
-				return err
+			printTaskRunLogs(name, start)
+
+			if runErr != nil {
+				return runErr
 			}
 
-			ts := stateStore.GetTaskState(name)
-			fmt.Printf("Task %s completed successfully (%s)\n", name, formatDuration(ts.LastDurationMs))
+			// The 'orbit _run' subprocess wrote fresh state to disk; reload it.
+			if fresh, err := newState(); err == nil {
+				ts := fresh.GetTaskState(name)
+				fmt.Printf("\nTask %s completed successfully (%s)\n", name, formatDuration(ts.LastDurationMs))
+			} else {
+				fmt.Printf("\nTask %s completed successfully\n", name)
+			}
 			return nil
 		},
 	}
 
 	return cmd
+}
+
+// printTaskRunLogs prints a task service's journal output since the given start
+// time.
+func printTaskRunLogs(name string, start time.Time) {
+	unitName := systemd.TaskServiceName(name)
+	// journalctl --since granularity is one second; back up slightly just in case
+	since := start.Add(-time.Second).Format("2006-01-02 15:04:05")
+
+	fmt.Println("--- output ---")
+	c := exec.Command("journalctl", "--user", "-u", unitName, "--since", since, "--no-pager")
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	//nolint:errcheck // best-effort log display; the run result is authoritative
+	c.Run()
+	fmt.Println("--------------")
 }
 
 func taskListCmd() *cobra.Command {

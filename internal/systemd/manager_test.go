@@ -512,6 +512,37 @@ func TestFailedServices_WithMock(t *testing.T) {
 	}
 }
 
+func TestRunTaskNow_WithMock(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	if err := m.RunTaskNow("backup"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+	want := []string{"--user", "start", "--wait", "orbit-task-backup.service"}
+	if strings.Join(mock.Calls[0], " ") != strings.Join(want, " ") {
+		t.Errorf("expected %v, got %v", want, mock.Calls[0])
+	}
+}
+
+func TestRunTaskNow_Error(t *testing.T) {
+	// systemctl --wait exits non-zero when the started unit fails.
+	mock := &MockSystemctl{Response: "Job for orbit-task-backup.service failed", Err: fmt.Errorf("exit status 1")}
+	m := &Manager{ctl: mock}
+
+	err := m.RunTaskNow("backup")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "backup") {
+		t.Errorf("expected error to mention task name, got %q", err.Error())
+	}
+}
+
 func TestFailedServices_IgnoresUnrequestedUnits(t *testing.T) {
 	// A block for a unit we never asked about must not leak into the result.
 	mock := &MockSystemctl{

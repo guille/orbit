@@ -381,6 +381,17 @@ func (m *Manager) FailedServices(taskNames []string) (map[string]string, error) 
 	return failed, nil
 }
 
+// RunTaskNow starts a task's service unit synchronously via `systemctl --user
+// start --wait`.
+// Returns an error if the unit fails or cannot be started.
+func (m *Manager) RunTaskNow(taskName string) error {
+	output, err := m.systemctlOutput("start", "--wait", TaskServiceName(taskName))
+	if err != nil {
+		return fmt.Errorf("running task %s: %w (output: %s)", taskName, err, strings.TrimSpace(output))
+	}
+	return nil
+}
+
 // ListUnits returns the names of all orbit-managed units known to systemd.
 func (m *Manager) ListUnits() ([]string, error) {
 	args := m.systemctlArgs("list-unit-files", "--all", "--no-legend", "--no-pager")
