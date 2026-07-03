@@ -2,13 +2,12 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
 )
 
 func nextCmd() *cobra.Command {
@@ -81,57 +80,30 @@ func nextCmd() *cobra.Command {
 	}
 }
 
-// nextRunCache avoids repeated systemd-analyze calls for the same schedule expression within a single CLI invocation.
-var nextRunCache = map[string]string{}
-
-// resolveNextRun uses systemd-analyze calendar to determine the next trigger time
-// for a given OnCalendar expression. Falls back to showing the raw schedule.
-// Results are cached per schedule string within a single process invocation.
-func resolveNextRun(schedule string) string {
-	if cached, ok := nextRunCache[schedule]; ok {
-		return cached
-	}
-	result := resolveNextRunUncached(schedule)
-	nextRunCache[schedule] = result
-	return result
+type nextRunResult struct {
+	t  time.Time
+	ok bool
 }
 
-// resolveNextRunUncached calls systemd-analyze calendar to determine the next trigger time for a schedule expression.
-func resolveNextRunUncached(schedule string) string {
-	cmd := exec.Command("systemd-analyze", "calendar", schedule, "--iterations=1")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+// nextRunCache memoizes schedule resolution within a single CLI invocation.
+var nextRunCache = map[string]nextRunResult{}
+
+// nextRun resolves a schedule's next trigger time, cached per invocation.
+func nextRun(schedule string) (time.Time, bool) {
+	if r, hit := nextRunCache[schedule]; hit {
+		return r.t, r.ok
+	}
+	t, err := systemd.NewManager().NextElapse(schedule)
+	r := nextRunResult{t: t, ok: err == nil}
+	nextRunCache[schedule] = r
+	return r.t, r.ok
+}
+
+// resolveNextRun returns a human-friendly next-run string for a schedule.
+func resolveNextRun(schedule string) string {
+	t, ok := nextRun(schedule)
+	if !ok {
 		return schedule + " (could not resolve)"
 	}
-
-	for line := range strings.SplitSeq(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, "Next elapse:"); ok {
-			raw := strings.TrimSpace(after)
-			t, err := parseSystemdTime(raw)
-			if err != nil {
-				return raw
-			}
-			return formatTime(t)
-		}
-	}
-
-	return schedule
-}
-
-// parseSystemdTime parses systemd-analyze calendar output timestamps.
-func parseSystemdTime(s string) (time.Time, error) {
-	// systemd uses "Day YYYY-MM-DD HH:MM:SS TZ"
-	// Try common layouts
-	layouts := []string{
-		"Mon 2006-01-02 15:04:05 MST",
-		"Mon 2006-01-02 15:04:05 -0700",
-		"2006-01-02 15:04:05 MST",
-	}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
+	return formatTime(t)
 }

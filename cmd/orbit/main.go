@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,7 +20,8 @@ It provides task scheduling with retry logic and reminder functionality with ack
 	RunE:         runDashboard,
 }
 
-// runDashboard prints a summary of active tasks and pending reminders when orbit is invoked with no subcommand.
+// runDashboard is the bare "orbit" home screen: it surfaces only what needs
+// attention.
 func runDashboard(cmd *cobra.Command, args []string) error {
 	stateStore, err := newState()
 	if err != nil {
@@ -27,91 +29,127 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	}
 
 	applied := stateStore.GetAppliedConfig()
-	if applied == nil {
-		fmt.Println("No applied configuration.")
+	if applied == nil || (len(applied.Tasks) == 0 && len(applied.Reminders) == 0) {
+		fmt.Println("Nothing configured.")
 		fmt.Printf("Run %s to create your config, then %s to activate it.\n", bold("orbit edit"), bold("orbit apply"))
 		return nil
 	}
 
-	totalTasks := len(applied.Tasks)
-	failedTasks := 0
-	disabledTasks := 0
-	var failedNames []string
+	activeTasks := 0
+	var failed []string
 	for name := range applied.Tasks {
 		ts := stateStore.GetTaskState(name)
 		if ts.Disabled {
-			disabledTasks++
-		} else if ts.ConsecutiveFailures > 0 {
-			failedTasks++
-			failedNames = append(failedNames, name)
+			continue
+		}
+		activeTasks++
+		if ts.ConsecutiveFailures > 0 {
+			failed = append(failed, name)
 		}
 	}
-	sortNatural(failedNames)
+	sortNatural(failed)
 
-	totalReminders := len(applied.Reminders)
-	pendingCount := 0
-	snoozedCount := 0
-	disabledReminders := 0
-	var pendingNames []string
+	activeReminders := 0
+	var pending []string
 	for name := range applied.Reminders {
 		rs := stateStore.GetReminderState(name)
 		if rs.Disabled {
-			disabledReminders++
 			continue
 		}
-		switch rs.State {
-		case state.StatePending:
-			pendingCount++
-			pendingNames = append(pendingNames, name)
-		case state.StateSnoozed:
-			snoozedCount++
+		activeReminders++
+		if rs.State == state.StatePending {
+			pending = append(pending, name)
 		}
 	}
-	sortNatural(pendingNames)
+	sortNatural(pending)
 
-	taskLine := fmt.Sprintf("Tasks:     %d active", totalTasks-disabledTasks)
-	if failedTasks > 0 {
-		taskLine += fmt.Sprintf(", %s", red(fmt.Sprintf("%d failed", failedTasks)))
-	}
-	if disabledTasks > 0 {
-		taskLine += fmt.Sprintf(", %s", dim(fmt.Sprintf("%d disabled", disabledTasks)))
-	}
-	fmt.Println(taskLine)
-
-	reminderLine := fmt.Sprintf("Reminders: %d configured", totalReminders-disabledReminders)
-	if pendingCount > 0 {
-		reminderLine += fmt.Sprintf(", %s", yellow(fmt.Sprintf("%d pending", pendingCount)))
-	}
-	if snoozedCount > 0 {
-		reminderLine += fmt.Sprintf(", %d snoozed", snoozedCount)
-	}
-	if disabledReminders > 0 {
-		reminderLine += fmt.Sprintf(", %s", dim(fmt.Sprintf("%d disabled", disabledReminders)))
-	}
-	fmt.Println(reminderLine)
-
-	if failedTasks > 0 || pendingCount > 0 {
-		fmt.Println()
+	if len(failed) == 0 && len(pending) == 0 {
+		printHealthyPulse(stateStore, applied, activeTasks, activeReminders)
+		return nil
 	}
 
-	for _, name := range failedNames {
+	for _, name := range failed {
 		ts := stateStore.GetTaskState(name)
-		fmt.Printf("  %s %s  %d consecutive failures\n", red("!"), name, ts.ConsecutiveFailures)
+		fmt.Printf("%s %s  %s\n", red("!"), name, red(fmt.Sprintf("%d consecutive failures (exit %d)", ts.ConsecutiveFailures, ts.LastExitCode)))
+		fmt.Printf("    %s\n", dim("orbit logs "+name))
 	}
-
-	for _, name := range pendingNames {
+	for _, name := range pending {
 		rs := stateStore.GetReminderState(name)
 		overdue := ""
 		if rs.OverdueCount > 1 {
-			overdue = fmt.Sprintf("  %d overdue", rs.OverdueCount)
+			overdue = fmt.Sprintf(" (%d overdue)", rs.OverdueCount)
 		}
-		fmt.Printf("  %s %s  pending%s\n", yellow("●"), name, overdue)
+		fmt.Printf("%s %s  %s%s\n", yellow("●"), name, yellow("pending"), overdue)
+		fmt.Printf("    %s\n", dim("orbit ack "+name))
 	}
 
-	fmt.Println()
-	fmt.Println(dim("Run 'orbit help' for available commands."))
-
 	return nil
+}
+
+// printHealthyPulse prints the single-line all-clear summary plus the next fire.
+func printHealthyPulse(stateStore *state.State, applied *state.AppliedConfig, activeTasks, activeReminders int) {
+	var parts []string
+	if activeTasks > 0 {
+		parts = append(parts, fmt.Sprintf("%d task%s", activeTasks, plural(activeTasks)))
+	}
+	if activeReminders > 0 {
+		parts = append(parts, fmt.Sprintf("%d reminder%s", activeReminders, plural(activeReminders)))
+	}
+
+	if len(parts) == 0 {
+		fmt.Println(dim("Nothing active (all entries disabled)."))
+		return
+	}
+
+	line := fmt.Sprintf("%s %s healthy", green("✓"), joinAnd(parts))
+	if name, when, ok := nextUpcoming(stateStore, applied); ok {
+		line += fmt.Sprintf(" · next: %s %s", name, when)
+	}
+	fmt.Println(line)
+}
+
+// nextUpcoming returns the soonest-firing active task or reminder and a
+// human-friendly time until it fires.
+func nextUpcoming(stateStore *state.State, applied *state.AppliedConfig) (name, when string, ok bool) {
+	now := time.Now()
+	var best time.Time
+
+	consider := func(n string, t time.Time) {
+		if !t.After(now) {
+			return
+		}
+		if name == "" || t.Before(best) {
+			name, best = n, t
+		}
+	}
+
+	for n := range applied.Tasks {
+		cfg := applied.Tasks[n]
+		if cfg.Schedule == "" || stateStore.GetTaskState(n).Disabled {
+			continue
+		}
+		if t, resolved := nextRun(cfg.Schedule); resolved {
+			consider(n, t)
+		}
+	}
+	for n := range applied.Reminders {
+		rs := stateStore.GetReminderState(n)
+		if rs.Disabled {
+			continue
+		}
+		if rs.State == state.StateSnoozed && rs.SnoozedUntil != nil {
+			consider(n, *rs.SnoozedUntil)
+			continue
+		}
+		if t, resolved := nextRun(applied.Reminders[n].Schedule); resolved {
+			consider(n, t)
+		}
+	}
+
+	if name == "" {
+		return "", "", false
+	}
+	return name, formatTime(best), true
 }
 
 // exactTime controls whether timestamps are shown as absolute values.

@@ -433,6 +433,36 @@ func (m *Manager) VerifyUnits(paths ...string) (string, error) {
 	return string(out), err
 }
 
+// NextElapse returns the next trigger time for an OnCalendar expression, via
+// `systemd-analyze calendar`.
+func (m *Manager) NextElapse(schedule string) (time.Time, error) {
+	out, err := exec.Command("systemd-analyze", "calendar", schedule, "--iterations=1").CombinedOutput()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("resolving schedule %q: %w", schedule, err)
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "Next elapse:"); ok {
+			return parseCalendarTime(strings.TrimSpace(after))
+		}
+	}
+	return time.Time{}, fmt.Errorf("no next elapse for schedule %q", schedule)
+}
+
+// parseCalendarTime parses a systemd-analyze calendar timestamp
+// ("Day YYYY-MM-DD HH:MM:SS TZ").
+func parseCalendarTime(s string) (time.Time, error) {
+	for _, layout := range []string{
+		"Mon 2006-01-02 15:04:05 MST",
+		"Mon 2006-01-02 15:04:05 -0700",
+		"2006-01-02 15:04:05 MST",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
+}
+
 // WriteUnits creates a temporary directory, writes all unit files into it,
 // and returns the directory path along with a cleanup function that removes
 // the temporary directory. The caller must call cleanup when done (typically
