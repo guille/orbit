@@ -80,8 +80,7 @@ func notifyInternalCmd() *cobra.Command {
 				exitCode := 0
 				if checkErr != nil {
 					exitCode = 1
-					var exitError *exec.ExitError
-					if errors.As(checkErr, &exitError) {
+					if exitError, ok := errors.AsType[*exec.ExitError](checkErr); ok {
 						exitCode = exitError.ExitCode()
 					}
 				}
