@@ -44,11 +44,12 @@ func reminderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reminder",
 		Short: "Reminder management commands",
-		Long:  `Manage orbit reminders: list, status, ack, snooze.`,
+		Long:  `Manage orbit reminders: list, status, logs, ack, snooze.`,
 	}
 
 	cmd.AddCommand(reminderListCmd())
 	cmd.AddCommand(reminderStatusCmd())
+	cmd.AddCommand(reminderLogsCmd())
 	cmd.AddCommand(reminderAckCmd())
 	cmd.AddCommand(reminderSnoozeCmd())
 

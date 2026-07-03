@@ -551,6 +551,39 @@ func TestUnitStatuses_WithMock(t *testing.T) {
 	}
 }
 
+func TestJournalArgs(t *testing.T) {
+	unit := "orbit-task-backup.service"
+
+	tests := []struct {
+		name string
+		opts LogOptions
+		want []string
+	}{
+		{
+			"lines by default",
+			LogOptions{Lines: 50},
+			[]string{"--user", "-u", unit, "--no-pager", "-n", "50"},
+		},
+		{
+			"since takes precedence over lines",
+			LogOptions{Since: "1 hour ago", Lines: 50},
+			[]string{"--user", "-u", unit, "--no-pager", "--since", "1 hour ago"},
+		},
+		{
+			"follow appends -f",
+			LogOptions{Lines: 20, Follow: true},
+			[]string{"--user", "-u", unit, "--no-pager", "-n", "20", "-f"},
+		},
+	}
+
+	for _, tc := range tests {
+		got := journalArgs(unit, tc.opts)
+		if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Errorf("%s: journalArgs = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestUnitStatuses_Empty(t *testing.T) {
 	mock := &MockSystemctl{}
 	m := &Manager{ctl: mock}

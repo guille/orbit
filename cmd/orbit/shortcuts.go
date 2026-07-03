@@ -22,28 +22,6 @@ func rootRunCmd() *cobra.Command {
 	}
 }
 
-// rootLogsCmd is the top-level "orbit logs" shortcut for "orbit task logs".
-func rootLogsCmd() *cobra.Command {
-	var follow bool
-	var since string
-	var lines int
-
-	cmd := &cobra.Command{
-		Use:               "logs NAME",
-		Short:             "Show logs for a task (shortcut for 'task logs')",
-		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"log"},
-		ValidArgsFunction: completeNames(taskNames),
-		RunE:              taskLogsRunE(&follow, &since, &lines),
-	}
-
-	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
-	cmd.Flags().StringVarP(&since, "since", "S", "", "Show logs since timestamp (e.g. '1 hour ago', '2024-01-01')")
-	cmd.Flags().IntVarP(&lines, "lines", "n", defaultLogLines, "Number of log lines to show")
-
-	return cmd
-}
-
 // rootStatusCmd is the top-level "orbit status" shortcut that shows the detailed
 // view of a task or reminder, resolving the kind from NAME. If a name is used by
 // both a task and a reminder, both views are shown.

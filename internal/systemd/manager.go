@@ -2,9 +2,11 @@ package systemd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -476,6 +478,36 @@ func (m *Manager) VerifyUnits(paths ...string) (string, error) {
 	cmd := exec.Command("systemd-analyze", args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// LogOptions controls which journal entries StreamUnitLogs shows.
+type LogOptions struct {
+	Follow bool
+	Since  string // journalctl --since; takes precedence over Lines
+	Lines  int
+}
+
+// StreamUnitLogs streams a unit's journal to the given writers via journalctl.
+// It blocks until journalctl exits (indefinitely when opts.Follow is set).
+func (m *Manager) StreamUnitLogs(unitName string, opts LogOptions, stdout, stderr io.Writer) error {
+	c := exec.Command("journalctl", journalArgs(unitName, opts)...)
+	c.Stdout = stdout
+	c.Stderr = stderr
+	return c.Run()
+}
+
+// journalArgs builds the journalctl arguments for a unit's logs.
+func journalArgs(unitName string, opts LogOptions) []string {
+	args := []string{"--user", "-u", unitName, "--no-pager"}
+	if opts.Since != "" {
+		args = append(args, "--since", opts.Since)
+	} else {
+		args = append(args, "-n", strconv.Itoa(opts.Lines))
+	}
+	if opts.Follow {
+		args = append(args, "-f")
+	}
+	return args
 }
 
 // NextElapse returns the next trigger time for an OnCalendar expression, via

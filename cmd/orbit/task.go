@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,8 +9,6 @@ import (
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
-
-const defaultLogLines = 50
 
 func taskCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -89,22 +85,6 @@ func taskRunRunE(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\nTask %s completed successfully\n", name)
 	}
 	return nil
-}
-
-// printTaskRunLogs prints a task service's journal output since the given start
-// time.
-func printTaskRunLogs(name string, start time.Time) {
-	unitName := systemd.TaskServiceName(name)
-	// journalctl --since granularity is one second; back up slightly just in case
-	since := start.Add(-time.Second).Format("2006-01-02 15:04:05")
-
-	fmt.Println("--- output ---")
-	c := exec.Command("journalctl", "--user", "-u", unitName, "--since", since, "--no-pager")
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	//nolint:errcheck // best-effort log display; the run result is authoritative
-	c.Run()
-	fmt.Println("--------------")
 }
 
 func taskListCmd() *cobra.Command {
@@ -227,70 +207,6 @@ func printTaskStatus(stateStore *state.State, name string) error {
 		fmt.Printf("Next run:              %s\n", nextRunStr)
 	}
 	return nil
-}
-
-func taskLogsCmd() *cobra.Command {
-	var follow bool
-	var since string
-	var lines int
-
-	cmd := &cobra.Command{
-		Use:               "logs NAME",
-		Short:             "Show logs for a task",
-		Long:              `Show journalctl logs for a task's systemd service.`,
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeNames(taskNames),
-		RunE:              taskLogsRunE(&follow, &since, &lines),
-	}
-
-	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
-	cmd.Flags().StringVarP(&since, "since", "S", "", "Show logs since timestamp (e.g. '1 hour ago', '2024-01-01')")
-	cmd.Flags().IntVarP(&lines, "lines", "n", defaultLogLines, "Number of log lines to show")
-
-	return cmd
-}
-
-// taskLogsRunE is the shared implementation for the logs command (used by both
-// "task logs" and root "logs").
-func taskLogsRunE(follow *bool, since *string, lines *int) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		stateStore, err := newState()
-		if err != nil {
-			return err
-		}
-
-		if err := rejectWrongKind(stateStore, args, kindTask); err != nil {
-			return err
-		}
-
-		name, err := pickName(args, "Select task:", stateStore, kindTask, taskNames)
-		if err != nil {
-			return err
-		}
-
-		unitName := systemd.TaskServiceName(name)
-
-		journalArgs := []string{"--user", "-u", unitName, "--no-pager"}
-
-		if *since != "" {
-			journalArgs = append(journalArgs, "--since", *since)
-		} else {
-			journalArgs = append(journalArgs, "-n", fmt.Sprintf("%d", *lines))
-		}
-
-		if *follow {
-			journalArgs = append(journalArgs, "-f")
-		}
-
-		c := exec.Command("journalctl", journalArgs...)
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-
-		if err := c.Run(); err != nil {
-			return fmt.Errorf("fetching logs: %w", err)
-		}
-		return nil
-	}
 }
 
 // formatTime formats a time.Time for display.
