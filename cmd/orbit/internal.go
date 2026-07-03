@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/notify"
 	"go.guillerg.dev/orbit/internal/picker"
 	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
@@ -80,7 +80,12 @@ func notifyInternalCmd() *cobra.Command {
 				return nil
 			}
 
-			if err := sendNotification(name, reminderConfig.Message); err != nil {
+			icon, _ := iconPath()
+			if err := notify.Send(notify.Notification{
+				Title: "Orbit: " + name,
+				Body:  reminderConfig.Message,
+				Icon:  icon,
+			}); err != nil {
 				fmt.Fprintf(os.Stderr, "[ORBIT] Warning: failed to send notification: %v\n", err)
 			}
 
@@ -154,29 +159,12 @@ func newState() (*state.State, error) {
 // nameExtractor extracts a list of names from an applied config.
 type nameExtractor func(*state.AppliedConfig) []string
 
-// taskNames extracts task names from an applied config for use with pickName.
-func taskNames(applied *state.AppliedConfig) []string {
-	if applied == nil {
-		return nil
-	}
-	names := make([]string, 0, len(applied.Tasks))
-	for name := range applied.Tasks {
-		names = append(names, name)
-	}
-	return names
-}
-
-// reminderNames extracts reminder names from an applied config for use with pickName.
-func reminderNames(applied *state.AppliedConfig) []string {
-	if applied == nil {
-		return nil
-	}
-	names := make([]string, 0, len(applied.Reminders))
-	for name := range applied.Reminders {
-		names = append(names, name)
-	}
-	return names
-}
+// taskNames and reminderNames adapt AppliedConfig's enumerators to nameExtractor
+// for use with pickName and completeNames.
+var (
+	taskNames     nameExtractor = (*state.AppliedConfig).TaskNames
+	reminderNames nameExtractor = (*state.AppliedConfig).ReminderNames
+)
 
 // pickName prompts the user to select a name if no argument is given.
 func pickName(args []string, prompt string, stateStore *state.State, kind entryKind, extract nameExtractor) (string, error) {
@@ -251,7 +239,7 @@ const currentEmbedVersion = 2
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.
 func ensureEmbeddedAssets(stateStore *state.State) {
-	dataDir, err := getDataDir()
+	icon, err := iconPath()
 	if err != nil {
 		return
 	}
@@ -260,14 +248,13 @@ func ensureEmbeddedAssets(stateStore *state.State) {
 		return
 	}
 
-	iconPath := filepath.Join(dataDir, "icon.png")
 	schemaPath := filepath.Join(configDir, "schema.json")
 
 	assets := []struct {
 		path string
 		data []byte
 	}{
-		{iconPath, iconPNG},
+		{icon, iconPNG},
 		{schemaPath, schemaJSON},
 	}
 
@@ -304,15 +291,13 @@ func ensureEmbeddedAssets(stateStore *state.State) {
 //go:embed icon.png
 var iconPNG []byte
 
-// sendNotification sends a desktop notification via notify-send.
-func sendNotification(name, message string) error {
-	title := fmt.Sprintf("Orbit: %s", name)
+// iconPath returns the on-disk path of the notification icon.
+func iconPath() (string, error) {
 	dataDir, err := getDataDir()
 	if err != nil {
-		return err
+		return "", err
 	}
-	iconPath := filepath.Join(dataDir, "icon.png")
-	return exec.Command("notify-send", "--icon", iconPath, title, message).Run()
+	return filepath.Join(dataDir, "icon.png"), nil
 }
 
 func notAppliedErr(kind entryKind, name string) error {

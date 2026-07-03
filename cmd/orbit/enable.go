@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/picker"
-	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
@@ -73,16 +72,11 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 
 	var names []string
 	if all {
-		for name := range applied.Tasks {
-			names = append(names, name)
-		}
-		for name := range applied.Reminders {
-			names = append(names, name)
-		}
+		names = applied.Names()
 		sortNatural(names)
 	} else if len(args) > 0 {
 		name := args[0]
-		if !entryExists(applied, name) {
+		if !applied.HasTask(name) && !applied.HasReminder(name) {
 			return notAppliedErr("entry", name)
 		}
 		names = []string{name}
@@ -120,7 +114,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 	var toStop, toStart []string
 
 	for _, name := range names {
-		if _, ok := applied.Tasks[name]; ok {
+		if applied.HasTask(name) {
 			ts := stateStore.GetTaskState(name)
 			if ts.Disabled != disable {
 				ts.Disabled = disable
@@ -138,7 +132,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 				}
 			}
 		}
-		if _, ok := applied.Reminders[name]; ok {
+		if applied.HasReminder(name) {
 			rs := stateStore.GetReminderState(name)
 			if rs.Disabled != disable {
 				rs.Disabled = disable
@@ -187,64 +181,12 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 	return nil
 }
 
-func entryExists(applied *state.AppliedConfig, name string) bool {
-	if _, ok := applied.Tasks[name]; ok {
-		return true
-	}
-	_, ok := applied.Reminders[name]
-	return ok
-}
-
-// classifyEntry reports whether name is registered as a task, a reminder, or both.
-func classifyEntry(applied *state.AppliedConfig, name string) (isTask, isReminder bool) {
-	if applied == nil {
-		return false, false
-	}
-	_, isTask = applied.Tasks[name]
-	_, isReminder = applied.Reminders[name]
-	return isTask, isReminder
-}
-
-func rejectWrongKind(stateStore *state.State, args []string, want entryKind) error {
-	if len(args) == 0 {
-		return nil
-	}
-	name := args[0]
-	isTask, isReminder := classifyEntry(stateStore.GetAppliedConfig(), name)
-	switch want {
-	case kindTask:
-		if isReminder && !isTask {
-			return fmt.Errorf("'%s' is a reminder, not a task", name)
-		}
-	case kindReminder:
-		if isTask && !isReminder {
-			return fmt.Errorf("'%s' is a task, not a reminder", name)
-		}
-	}
-	return nil
-}
-
-func allNamesFromApplied(applied *state.AppliedConfig) []string {
-	var names []string
-	for name := range applied.Tasks {
-		names = append(names, name)
-	}
-	for name := range applied.Reminders {
-		names = append(names, name)
-	}
-	return names
-}
-
 func allEntryNames() []string {
 	stateStore, err := newState()
 	if err != nil {
 		return nil
 	}
-	applied := stateStore.GetAppliedConfig()
-	if applied == nil {
-		return nil
-	}
-	names := allNamesFromApplied(applied)
+	names := stateStore.GetAppliedConfig().Names()
 	sortNatural(names)
 	return names
 }

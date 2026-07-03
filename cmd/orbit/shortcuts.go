@@ -48,7 +48,7 @@ func rootStatusCmd() *cobra.Command {
 			if len(args) > 0 {
 				name = args[0]
 			} else {
-				names := allNamesFromApplied(applied)
+				names := applied.Names()
 				if len(names) == 0 {
 					return fmt.Errorf("nothing configured (run 'orbit apply' first)")
 				}
@@ -58,7 +58,7 @@ func rootStatusCmd() *cobra.Command {
 				}
 			}
 
-			isTask, isReminder := classifyEntry(applied, name)
+			isTask, isReminder := applied.Classify(name)
 			switch {
 			case isTask && isReminder:
 				if err := printTaskStatus(stateStore, name); err != nil {

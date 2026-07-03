@@ -822,3 +822,54 @@ func TestAppliedConfig_Overwrite(t *testing.T) {
 		t.Errorf("expected weekly, got %s", ac.Tasks["new-task"].Schedule)
 	}
 }
+
+func TestAppliedConfig_Classify(t *testing.T) {
+	ac := &AppliedConfig{
+		Tasks:     map[string]AppliedTaskConfig{"backup": {}, "both": {}},
+		Reminders: map[string]AppliedReminderConfig{"review": {}, "both": {}},
+	}
+
+	tests := []struct {
+		name              string
+		wantTask, wantRem bool
+	}{
+		{"backup", true, false}, // task only
+		{"review", false, true}, // reminder only
+		{"both", true, true},    // shared name → both
+		{"missing", false, false},
+	}
+	for _, tc := range tests {
+		gotTask, gotRem := ac.Classify(tc.name)
+		if gotTask != tc.wantTask || gotRem != tc.wantRem {
+			t.Errorf("Classify(%q) = (%v, %v), want (%v, %v)", tc.name, gotTask, gotRem, tc.wantTask, tc.wantRem)
+		}
+	}
+
+	// A nil config classifies everything as absent.
+	var nilConfig *AppliedConfig
+	if gotTask, gotRem := nilConfig.Classify("x"); gotTask || gotRem {
+		t.Errorf("nil.Classify() = (%v, %v), want (false, false)", gotTask, gotRem)
+	}
+}
+
+func TestAppliedConfig_Names(t *testing.T) {
+	ac := &AppliedConfig{
+		Tasks:     map[string]AppliedTaskConfig{"t1": {}, "t2": {}},
+		Reminders: map[string]AppliedReminderConfig{"r1": {}},
+	}
+
+	if got := len(ac.Names()); got != 3 {
+		t.Errorf("Names() len = %d, want 3", got)
+	}
+	if got := len(ac.TaskNames()); got != 2 {
+		t.Errorf("TaskNames() len = %d, want 2", got)
+	}
+	if got := len(ac.ReminderNames()); got != 1 {
+		t.Errorf("ReminderNames() len = %d, want 1", got)
+	}
+
+	var nilConfig *AppliedConfig
+	if nilConfig.Names() != nil || nilConfig.TaskNames() != nil || nilConfig.ReminderNames() != nil {
+		t.Error("nil config should return nil name slices")
+	}
+}

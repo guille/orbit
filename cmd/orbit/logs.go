@@ -143,7 +143,7 @@ func rootLogsRunE(follow *bool, since *string, lines *int) func(cmd *cobra.Comma
 		if len(args) > 0 {
 			name = args[0]
 		} else {
-			names := allNamesFromApplied(applied)
+			names := applied.Names()
 			if len(names) == 0 {
 				return fmt.Errorf("nothing configured (run 'orbit apply' first)")
 			}
@@ -153,7 +153,7 @@ func rootLogsRunE(follow *bool, since *string, lines *int) func(cmd *cobra.Comma
 			}
 		}
 
-		isTask, isReminder := classifyEntry(applied, name)
+		isTask, isReminder := applied.Classify(name)
 		switch {
 		case isTask && isReminder:
 			return fmt.Errorf("'%s' is both a task and a reminder — use 'orbit task logs %s' or 'orbit reminder logs %s'", name, name, name)

@@ -108,10 +108,7 @@ func taskListCmd() *cobra.Command {
 			fmt.Printf("%-20s %-20s %-30s %-15s\n", "TASK", "LAST RUN", "NEXT RUN", "STATUS")
 			fmt.Printf("%-20s %-20s %-30s %-15s\n", "----", "--------", "--------", "------")
 
-			names := make([]string, 0, len(applied.Tasks))
-			for name := range applied.Tasks {
-				names = append(names, name)
-			}
+			names := applied.TaskNames()
 			sortNatural(names)
 
 			failed, _ := systemd.NewManager().FailedServices(names)

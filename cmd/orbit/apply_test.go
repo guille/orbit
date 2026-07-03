@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -446,5 +447,97 @@ func TestDiffConfig_AllRemoved(t *testing.T) {
 	}
 	if cs.nCreate != 0 || cs.nUpdate != 0 {
 		t.Fatalf("expected no creates/updates, got create=%d update=%d", cs.nCreate, cs.nUpdate)
+	}
+}
+
+func TestUnitsToRemove(t *testing.T) {
+	scheduledOld := state.AppliedTaskConfig{Schedule: "daily"}
+	unscheduledNew := config.TaskConfig{Schedule: ""}
+	keptNew := config.TaskConfig{Schedule: "daily"}
+
+	cs := configChangeSet{changes: []configChange{
+		{name: "backup", kind: kindTask, action: actionRemove},
+		{name: "standup", kind: kindReminder, action: actionRemove},
+		// A task that lost its schedule: service stays, timer must go.
+		{name: "cron", kind: kindTask, action: actionUpdate, oldTask: &scheduledOld, newTask: &unscheduledNew},
+		// A task that kept its schedule: nothing removed.
+		{name: "keep", kind: kindTask, action: actionUpdate, oldTask: &scheduledOld, newTask: &keptNew},
+	}}
+
+	units, removed := unitsToRemove(cs)
+
+	wantUnits := []string{
+		"orbit-task-backup.service", "orbit-task-backup.timer",
+		"orbit-reminder-standup.service", "orbit-reminder-standup.timer", "orbit-snooze-standup.timer",
+		"orbit-task-cron.timer",
+	}
+	var gotUnits []string
+	for _, u := range units {
+		gotUnits = append(gotUnits, u.Name)
+	}
+	if !slices.Equal(gotUnits, wantUnits) {
+		t.Errorf("units = %v, want %v", gotUnits, wantUnits)
+	}
+
+	// Only the two actionRemove entries get their state deleted; the lost-schedule
+	// task is an update, not a removal.
+	if len(removed) != 2 {
+		t.Fatalf("expected 2 removed entries, got %d: %v", len(removed), removed)
+	}
+	if removed[0].name != "backup" || removed[0].kind != kindTask {
+		t.Errorf("removed[0] = %s %s, want task backup", removed[0].kind, removed[0].name)
+	}
+	if removed[1].name != "standup" || removed[1].kind != kindReminder {
+		t.Errorf("removed[1] = %s %s, want reminder standup", removed[1].kind, removed[1].name)
+	}
+}
+
+type fakeStateReader struct {
+	tasks     map[string]state.TaskState
+	reminders map[string]state.ReminderState
+}
+
+func (f fakeStateReader) GetTaskState(name string) state.TaskState {
+	return f.tasks[name]
+}
+
+func (f fakeStateReader) GetReminderState(name string) state.ReminderState {
+	return f.reminders[name]
+}
+
+func TestDisabledTimerNames(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"enabled-task":  {},
+			"disabled-task": {},
+		},
+		Reminders: map[string]config.ReminderConfig{
+			"enabled-rem":  {},
+			"disabled-rem": {},
+		},
+	}
+	sr := fakeStateReader{
+		tasks: map[string]state.TaskState{
+			"disabled-task": {Disabled: true},
+		},
+		reminders: map[string]state.ReminderState{
+			"disabled-rem": {Disabled: true},
+		},
+	}
+
+	got := disabledTimerNames(cfg, sr)
+	want := []string{"orbit-reminder-disabled-rem.timer", "orbit-task-disabled-task.timer"}
+	if !slices.Equal(got, want) {
+		t.Errorf("disabledTimerNames = %v, want %v", got, want)
+	}
+}
+
+func TestDisabledTimerNames_NoneDisabled(t *testing.T) {
+	cfg := &config.Config{
+		Tasks:     map[string]config.TaskConfig{"a": {}},
+		Reminders: map[string]config.ReminderConfig{"b": {}},
+	}
+	if got := disabledTimerNames(cfg, fakeStateReader{}); len(got) != 0 {
+		t.Errorf("expected no disabled timers, got %v", got)
 	}
 }

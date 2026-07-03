@@ -13,14 +13,6 @@ import (
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
-// entryKind distinguishes tasks from reminders.
-type entryKind string
-
-const (
-	kindTask     entryKind = "task"
-	kindReminder entryKind = "reminder"
-)
-
 // changeAction describes what operation a configChange represents.
 type changeAction string
 
@@ -161,46 +153,18 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 		}
 	}
 
-	var toRemove []systemd.Unit
-	for _, c := range cs.changes {
-		if c.action == actionRemove {
-			switch c.kind {
-			case kindTask:
-				toRemove = append(toRemove,
-					systemd.Unit{Name: systemd.TaskServiceName(c.name)},
-					systemd.Unit{Name: systemd.TaskTimerName(c.name)},
-				)
-			case kindReminder:
-				toRemove = append(toRemove,
-					systemd.Unit{Name: systemd.ReminderServiceName(c.name)},
-					systemd.Unit{Name: systemd.ReminderTimerName(c.name)},
-					systemd.Unit{Name: systemd.SnoozeTimerName(c.name)},
-				)
-			}
-		}
-		// A task that lost its schedule still gets its service updated, but the timer must go
-		if c.action == actionUpdate && c.kind == kindTask {
-			if c.oldTask != nil && c.oldTask.Schedule != "" && c.newTask != nil && c.newTask.Schedule == "" {
-				toRemove = append(toRemove,
-					systemd.Unit{Name: systemd.TaskTimerName(c.name)},
-				)
-			}
-		}
-	}
+	toRemove, removed := unitsToRemove(cs)
 	if len(toRemove) > 0 {
 		if err := manager.RemoveUnits(toRemove); err != nil {
 			return fmt.Errorf("removing obsolete units: %w", err)
 		}
-		for _, c := range cs.changes {
-			if c.action != actionRemove {
-				continue
-			}
-			switch c.kind {
-			case kindTask:
-				stateStore.DeleteTaskState(c.name)
-			case kindReminder:
-				stateStore.DeleteReminderState(c.name)
-			}
+	}
+	for _, c := range removed {
+		switch c.kind {
+		case kindTask:
+			stateStore.DeleteTaskState(c.name)
+		case kindReminder:
+			stateStore.DeleteReminderState(c.name)
 		}
 	}
 
@@ -210,19 +174,7 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 	}
 
 	// Respect disabled state: stop timers for disabled entries
-	var disabledTimers []string
-	for name := range cfg.Tasks {
-		ts := stateStore.GetTaskState(name)
-		if ts.Disabled {
-			disabledTimers = append(disabledTimers, systemd.TaskTimerName(name))
-		}
-	}
-	for name := range cfg.Reminders {
-		rs := stateStore.GetReminderState(name)
-		if rs.Disabled {
-			disabledTimers = append(disabledTimers, systemd.ReminderTimerName(name))
-		}
-	}
+	disabledTimers := disabledTimerNames(cfg, stateStore)
 	if len(disabledTimers) > 0 {
 		manager.StopAndDisableTimers(disabledTimers)
 	}
@@ -331,6 +283,58 @@ func reminderChanged(old state.AppliedReminderConfig, new config.ReminderConfig)
 		old.Message != new.Message ||
 		old.Snooze != new.Snooze ||
 		old.Check != new.Check
+}
+
+// unitsToRemove returns the units to uninstall for a changeset, along with the
+// removed entries whose stored state should be deleted. A task that merely lost
+// its schedule keeps its service but drops its now-obsolete timer.
+func unitsToRemove(cs configChangeSet) (units []systemd.Unit, removed []configChange) {
+	for _, c := range cs.changes {
+		switch {
+		case c.action == actionRemove && c.kind == kindTask:
+			units = append(units,
+				systemd.Unit{Name: systemd.TaskServiceName(c.name)},
+				systemd.Unit{Name: systemd.TaskTimerName(c.name)},
+			)
+			removed = append(removed, c)
+		case c.action == actionRemove && c.kind == kindReminder:
+			units = append(units,
+				systemd.Unit{Name: systemd.ReminderServiceName(c.name)},
+				systemd.Unit{Name: systemd.ReminderTimerName(c.name)},
+				systemd.Unit{Name: systemd.SnoozeTimerName(c.name)},
+			)
+			removed = append(removed, c)
+		case c.action == actionUpdate && c.kind == kindTask &&
+			c.oldTask != nil && c.oldTask.Schedule != "" &&
+			c.newTask != nil && c.newTask.Schedule == "":
+			units = append(units, systemd.Unit{Name: systemd.TaskTimerName(c.name)})
+		}
+	}
+	return units, removed
+}
+
+// stateReader reads per-entry state needed to decide which timers to stop.
+type stateReader interface {
+	GetTaskState(name string) state.TaskState
+	GetReminderState(name string) state.ReminderState
+}
+
+// disabledTimerNames returns the timer unit names for entries marked disabled,
+// sorted for stable ordering.
+func disabledTimerNames(cfg *config.Config, sr stateReader) []string {
+	var names []string
+	for name := range cfg.Tasks {
+		if sr.GetTaskState(name).Disabled {
+			names = append(names, systemd.TaskTimerName(name))
+		}
+	}
+	for name := range cfg.Reminders {
+		if sr.GetReminderState(name).Disabled {
+			names = append(names, systemd.ReminderTimerName(name))
+		}
+	}
+	sortNatural(names)
+	return names
 }
 
 // printConfigChanges prints the config-level change set with colors.

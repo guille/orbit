@@ -31,16 +31,10 @@ func nextCmd() *cobra.Command {
 			fmt.Printf("%-20s %-10s %-20s %-30s\n", "NAME", "TYPE", "SCHEDULE", "NEXT RUN")
 			fmt.Printf("%-20s %-10s %-20s %-30s\n", "----", "----", "--------", "--------")
 
-			taskNames := make([]string, 0, len(applied.Tasks))
-			for name := range applied.Tasks {
-				taskNames = append(taskNames, name)
-			}
+			taskNames := applied.TaskNames()
 			sortNatural(taskNames)
 
-			rNames := make([]string, 0, len(applied.Reminders))
-			for name := range applied.Reminders {
-				rNames = append(rNames, name)
-			}
+			rNames := applied.ReminderNames()
 			sortNatural(rNames)
 
 			for _, name := range taskNames {

@@ -49,6 +49,68 @@ type AppliedConfig struct {
 	Reminders map[string]AppliedReminderConfig `json:"reminders"`
 }
 
+// HasTask reports whether name is registered as an applied task.
+func (a *AppliedConfig) HasTask(name string) bool {
+	if a == nil {
+		return false
+	}
+	_, ok := a.Tasks[name]
+	return ok
+}
+
+// HasReminder reports whether name is registered as an applied reminder.
+func (a *AppliedConfig) HasReminder(name string) bool {
+	if a == nil {
+		return false
+	}
+	_, ok := a.Reminders[name]
+	return ok
+}
+
+// Classify reports whether name is registered as a task, a reminder, or both.
+func (a *AppliedConfig) Classify(name string) (isTask, isReminder bool) {
+	return a.HasTask(name), a.HasReminder(name)
+}
+
+// Names returns all task and reminder names, unsorted.
+func (a *AppliedConfig) Names() []string {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.Tasks)+len(a.Reminders))
+	for name := range a.Tasks {
+		names = append(names, name)
+	}
+	for name := range a.Reminders {
+		names = append(names, name)
+	}
+	return names
+}
+
+// TaskNames returns all task names, unsorted.
+func (a *AppliedConfig) TaskNames() []string {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.Tasks))
+	for name := range a.Tasks {
+		names = append(names, name)
+	}
+	return names
+}
+
+// ReminderNames returns all reminder names, unsorted.
+func (a *AppliedConfig) ReminderNames() []string {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.Reminders))
+	for name := range a.Reminders {
+		names = append(names, name)
+	}
+	return names
+}
+
 // AppliedTaskConfig is the applied (saved) version of a task's configuration.
 type AppliedTaskConfig struct {
 	Command  string                `json:"command"`

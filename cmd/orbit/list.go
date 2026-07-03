@@ -38,11 +38,7 @@ func listCmd() *cobra.Command {
 
 			var rows []row
 
-			taskNames := make([]string, 0, len(applied.Tasks))
-			for name := range applied.Tasks {
-				taskNames = append(taskNames, name)
-			}
-			failed, _ := systemd.NewManager().FailedServices(taskNames)
+			failed, _ := systemd.NewManager().FailedServices(applied.TaskNames())
 
 			for name, taskConfig := range applied.Tasks {
 				ts := stateStore.GetTaskState(name)

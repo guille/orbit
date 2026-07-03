@@ -95,10 +95,7 @@ func printAllReminders(applied *state.AppliedConfig, stateStore *state.State) {
 	fmt.Printf("%-25s %-15s %-20s %-20s\n", "REMINDER", "STATE", "FIRED AT", "SNOOZE UNTIL")
 	fmt.Printf("%-25s %-15s %-20s %-20s\n", "--------", "-----", "--------", "------------")
 
-	names := make([]string, 0, len(applied.Reminders))
-	for name := range applied.Reminders {
-		names = append(names, name)
-	}
+	names := applied.ReminderNames()
 	sortNatural(names)
 
 	for _, name := range names {
@@ -221,7 +218,7 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var extract nameExtractor = reminderNames
+	extract := reminderNames
 	if len(args) == 0 {
 		extract = func(applied *state.AppliedConfig) []string {
 			return actionableReminderNames(applied, stateStore)
@@ -308,7 +305,7 @@ func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error 
 			return err
 		}
 
-		var extract nameExtractor = reminderNames
+		extract := reminderNames
 		if len(args) == 0 {
 			extract = func(applied *state.AppliedConfig) []string {
 				return actionableReminderNames(applied, stateStore)
