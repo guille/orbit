@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -376,24 +375,22 @@ func checkTimerStates(applied *state.AppliedConfig, stateStore *state.State) boo
 		return true
 	}
 
-	activeArgs := append([]string{"--user", "is-active"}, timerNames...)
-	activeOut, _ := exec.Command("systemctl", activeArgs...).Output()
-	activeLines := strings.Split(strings.TrimSpace(string(activeOut)), "\n")
-
-	enabledArgs := append([]string{"--user", "is-enabled"}, timerNames...)
-	enabledOut, _ := exec.Command("systemctl", enabledArgs...).Output()
-	enabledLines := strings.Split(strings.TrimSpace(string(enabledOut)), "\n")
+	statuses, err := systemd.NewManager().UnitStatuses(timerNames)
+	if err != nil {
+		fmt.Println(red("FAIL"))
+		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), err)
+		return false
+	}
 
 	var problems []string
-	for i, name := range timerNames {
-		active := i < len(activeLines) && strings.TrimSpace(activeLines[i]) == "active"
-		enabled := i < len(enabledLines) && strings.TrimSpace(enabledLines[i]) == "enabled"
-
-		if !active && !enabled {
+	for _, name := range timerNames {
+		st := statuses[name]
+		switch {
+		case !st.Active && !st.Enabled:
 			problems = append(problems, fmt.Sprintf("%s is not active or enabled", name))
-		} else if !active {
+		case !st.Active:
 			problems = append(problems, fmt.Sprintf("%s is enabled but not active", name))
-		} else if !enabled {
+		case !st.Enabled:
 			problems = append(problems, fmt.Sprintf("%s is active but not enabled (won't survive reboot)", name))
 		}
 	}

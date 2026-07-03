@@ -381,6 +381,51 @@ func (m *Manager) FailedServices(taskNames []string) (map[string]string, error) 
 	return failed, nil
 }
 
+// UnitStatus reports a unit's runtime and install state.
+type UnitStatus struct {
+	Active  bool // ActiveState == "active"
+	Enabled bool // UnitFileState == "enabled"
+}
+
+// UnitStatuses returns the active/enabled status of each given unit, keyed by
+// unit name, in a single `systemctl show` invocation. Units unknown to systemd
+// report as neither active nor enabled.
+func (m *Manager) UnitStatuses(units []string) (map[string]UnitStatus, error) {
+	if len(units) == 0 {
+		return nil, nil
+	}
+
+	args := append([]string{"--property=Id,ActiveState,UnitFileState"}, units...)
+	output, err := m.systemctlOutput("show", args...)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make(map[string]UnitStatus, len(units))
+	for block := range strings.SplitSeq(strings.TrimSpace(output), "\n\n") {
+		var id, active, enabled string
+		for line := range strings.SplitSeq(block, "\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(key) {
+			case "Id":
+				id = strings.TrimSpace(value)
+			case "ActiveState":
+				active = strings.TrimSpace(value)
+			case "UnitFileState":
+				enabled = strings.TrimSpace(value)
+			}
+		}
+		if id != "" {
+			statuses[id] = UnitStatus{Active: active == "active", Enabled: enabled == "enabled"}
+		}
+	}
+
+	return statuses, nil
+}
+
 // RunTaskNow starts a task's service unit synchronously via `systemctl --user
 // start --wait`.
 // Returns an error if the unit fails or cannot be started.

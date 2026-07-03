@@ -512,6 +512,61 @@ func TestFailedServices_WithMock(t *testing.T) {
 	}
 }
 
+func TestUnitStatuses_WithMock(t *testing.T) {
+	// "good" is active+enabled; "stale" is active but not enabled (UnitFileState
+	// before ActiveState to exercise order-independent parsing); "gone" is unknown
+	// to systemd (inactive, empty UnitFileState).
+	mock := &MockSystemctl{
+		Response: "Id=orbit-task-good.timer\nActiveState=active\nUnitFileState=enabled\n" +
+			"\n" +
+			"Id=orbit-task-stale.timer\nUnitFileState=disabled\nActiveState=active\n" +
+			"\n" +
+			"Id=orbit-task-gone.timer\nActiveState=inactive\nUnitFileState=\n",
+	}
+	m := &Manager{ctl: mock}
+
+	units := []string{"orbit-task-good.timer", "orbit-task-stale.timer", "orbit-task-gone.timer"}
+	statuses, err := m.UnitStatuses(units)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]UnitStatus{
+		"orbit-task-good.timer":  {Active: true, Enabled: true},
+		"orbit-task-stale.timer": {Active: true, Enabled: false},
+		"orbit-task-gone.timer":  {Active: false, Enabled: false},
+	}
+	for unit, w := range want {
+		if statuses[unit] != w {
+			t.Errorf("%s: got %+v, want %+v", unit, statuses[unit], w)
+		}
+	}
+
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+	joined := strings.Join(mock.Calls[0], " ")
+	if !strings.Contains(joined, "show") || !strings.Contains(joined, "--property=Id,ActiveState,UnitFileState") {
+		t.Errorf("expected `show --property=Id,ActiveState,UnitFileState`, got %v", mock.Calls[0])
+	}
+}
+
+func TestUnitStatuses_Empty(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	statuses, err := m.UnitStatuses(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if statuses != nil {
+		t.Errorf("expected nil map, got %v", statuses)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected no systemctl calls for empty input, got %d", len(mock.Calls))
+	}
+}
+
 func TestRunTaskNow_WithMock(t *testing.T) {
 	mock := &MockSystemctl{}
 	m := &Manager{ctl: mock}
