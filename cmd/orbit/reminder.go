@@ -42,10 +42,9 @@ func snoozeDisplay(rs state.ReminderState) string {
 
 func reminderCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "reminder",
-		Short:   "Reminder management commands",
-		Long:    `Manage orbit reminders: list, status, ack, snooze.`,
-		Aliases: []string{"r"},
+		Use:   "reminder",
+		Short: "Reminder management commands",
+		Long:  `Manage orbit reminders: list, status, ack, snooze.`,
 	}
 
 	cmd.AddCommand(reminderListCmd())
@@ -161,46 +160,51 @@ func reminderStatusCmd() *cobra.Command {
 				return err
 			}
 
-			reminderConfig, ok := stateStore.GetAppliedReminder(name)
-			if !ok {
-				return notAppliedErr(kindReminder, name)
-			}
-
-			rs := stateStore.GetReminderState(name)
-
-			fmt.Printf("Reminder:       %s\n", name)
-			fmt.Printf("Message:        %s\n", reminderConfig.Message)
-			if reminderConfig.Command != "" {
-				fmt.Printf("Command:        %s\n", reminderConfig.Command)
-			} else {
-				fmt.Printf("Command:        (none)\n")
-			}
-			fmt.Printf("Schedule:       %s\n", reminderConfig.Schedule)
-			if reminderConfig.Check != "" {
-				fmt.Printf("Check:          %s\n", reminderConfig.Check)
-			}
-			fmt.Printf("Snooze default: %s\n", reminderConfig.Snooze)
-			fmt.Println()
-
-			coloredState := colorizeReminderState(rs.State)
-			fmt.Printf("State:          %s\n", coloredState)
-			fmt.Printf("Fired at:       %s\n", formatTime(rs.FiredAt))
-			if rs.SnoozedUntil != nil {
-				fmt.Printf("Fires:          %s\n", formatTime(*rs.SnoozedUntil))
-			}
-			fmt.Printf("Overdue count:  %d\n", rs.OverdueCount)
-			if reminderConfig.Check != "" && rs.LastCheckExitCode != nil {
-				exitStr := fmt.Sprintf("%d", *rs.LastCheckExitCode)
-				if *rs.LastCheckExitCode == 0 {
-					exitStr = green(exitStr) + " (condition met)"
-				} else {
-					exitStr = dim(exitStr) + " (condition not met)"
-				}
-				fmt.Printf("Last check:     %s at %s\n", exitStr, formatTime(rs.LastCheckAt))
-			}
-			return nil
+			return printReminderStatus(stateStore, name)
 		},
 	}
+}
+
+// printReminderStatus renders the detailed status view for a single reminder.
+func printReminderStatus(stateStore *state.State, name string) error {
+	reminderConfig, ok := stateStore.GetAppliedReminder(name)
+	if !ok {
+		return notAppliedErr(kindReminder, name)
+	}
+
+	rs := stateStore.GetReminderState(name)
+
+	fmt.Printf("Reminder:       %s\n", name)
+	fmt.Printf("Message:        %s\n", reminderConfig.Message)
+	if reminderConfig.Command != "" {
+		fmt.Printf("Command:        %s\n", reminderConfig.Command)
+	} else {
+		fmt.Printf("Command:        (none)\n")
+	}
+	fmt.Printf("Schedule:       %s\n", reminderConfig.Schedule)
+	if reminderConfig.Check != "" {
+		fmt.Printf("Check:          %s\n", reminderConfig.Check)
+	}
+	fmt.Printf("Snooze default: %s\n", reminderConfig.Snooze)
+	fmt.Println()
+
+	coloredState := colorizeReminderState(rs.State)
+	fmt.Printf("State:          %s\n", coloredState)
+	fmt.Printf("Fired at:       %s\n", formatTime(rs.FiredAt))
+	if rs.SnoozedUntil != nil {
+		fmt.Printf("Fires:          %s\n", formatTime(*rs.SnoozedUntil))
+	}
+	fmt.Printf("Overdue count:  %d\n", rs.OverdueCount)
+	if reminderConfig.Check != "" && rs.LastCheckExitCode != nil {
+		exitStr := fmt.Sprintf("%d", *rs.LastCheckExitCode)
+		if *rs.LastCheckExitCode == 0 {
+			exitStr = green(exitStr) + " (condition met)"
+		} else {
+			exitStr = dim(exitStr) + " (condition not met)"
+		}
+		fmt.Printf("Last check:     %s at %s\n", exitStr, formatTime(rs.LastCheckAt))
+	}
+	return nil
 }
 
 // ackRunE is the shared implementation for the ack command (used by both "reminder ack" and root "ack").
@@ -209,6 +213,10 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 
 	stateStore, err := newState()
 	if err != nil {
+		return err
+	}
+
+	if err := rejectWrongKind(stateStore, args, kindReminder); err != nil {
 		return err
 	}
 
@@ -292,6 +300,10 @@ func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error 
 	return func(cmd *cobra.Command, args []string) error {
 		stateStore, err := newState()
 		if err != nil {
+			return err
+		}
+
+		if err := rejectWrongKind(stateStore, args, kindReminder); err != nil {
 			return err
 		}
 
@@ -406,6 +418,7 @@ func rootSnoozeCmd() *cobra.Command {
 		Use:               "snooze [NAME]",
 		Short:             "Snooze a reminder (shortcut for 'reminder snooze')",
 		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"zz"},
 		ValidArgsFunction: completeNames(reminderNames),
 		RunE:              snoozeRunE(&duration),
 	}

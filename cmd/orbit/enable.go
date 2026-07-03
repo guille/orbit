@@ -15,10 +15,11 @@ func enableCmd() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "enable [NAME]",
-		Short: "Enable a disabled task or reminder",
-		Long:  `Re-enable a previously disabled task or reminder, starting its timer.`,
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "enable [NAME]",
+		Short:   "Enable a disabled task or reminder",
+		Long:    `Re-enable a previously disabled task or reminder, starting its timer.`,
+		Args:    cobra.MaximumNArgs(1),
+		Aliases: []string{"on"},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return allEntryNames(), cobra.ShellCompDirectiveNoFileComp
 		},
@@ -36,10 +37,11 @@ func disableCmd() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "disable [NAME]",
-		Short: "Disable a task or reminder",
-		Long:  `Disable a task or reminder, stopping its timer. It remains in the config but won't fire until re-enabled.`,
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "disable [NAME]",
+		Short:   "Disable a task or reminder",
+		Long:    `Disable a task or reminder, stopping its timer. It remains in the config but won't fire until re-enabled.`,
+		Args:    cobra.MaximumNArgs(1),
+		Aliases: []string{"off"},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			return allEntryNames(), cobra.ShellCompDirectiveNoFileComp
 		},
@@ -191,6 +193,35 @@ func entryExists(applied *state.AppliedConfig, name string) bool {
 	}
 	_, ok := applied.Reminders[name]
 	return ok
+}
+
+// classifyEntry reports whether name is registered as a task, a reminder, or both.
+func classifyEntry(applied *state.AppliedConfig, name string) (isTask, isReminder bool) {
+	if applied == nil {
+		return false, false
+	}
+	_, isTask = applied.Tasks[name]
+	_, isReminder = applied.Reminders[name]
+	return isTask, isReminder
+}
+
+func rejectWrongKind(stateStore *state.State, args []string, want entryKind) error {
+	if len(args) == 0 {
+		return nil
+	}
+	name := args[0]
+	isTask, isReminder := classifyEntry(stateStore.GetAppliedConfig(), name)
+	switch want {
+	case kindTask:
+		if isReminder && !isTask {
+			return fmt.Errorf("'%s' is a reminder, not a task", name)
+		}
+	case kindReminder:
+		if isTask && !isReminder {
+			return fmt.Errorf("'%s' is a task, not a reminder", name)
+		}
+	}
+	return nil
 }
 
 func allNamesFromApplied(applied *state.AppliedConfig) []string {

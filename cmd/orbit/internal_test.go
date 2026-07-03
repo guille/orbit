@@ -83,6 +83,33 @@ func TestTaskStatusString(t *testing.T) {
 	}
 }
 
+func TestClassifyEntry(t *testing.T) {
+	applied := &state.AppliedConfig{
+		Tasks:     map[string]state.AppliedTaskConfig{"backup": {}, "both": {}},
+		Reminders: map[string]state.AppliedReminderConfig{"review": {}, "both": {}},
+	}
+
+	tests := []struct {
+		name              string
+		wantTask, wantRem bool
+	}{
+		{"backup", true, false}, // task only
+		{"review", false, true}, // reminder only
+		{"both", true, true},    // shared name → both
+		{"missing", false, false},
+	}
+	for _, tc := range tests {
+		gotTask, gotRem := classifyEntry(applied, tc.name)
+		if gotTask != tc.wantTask || gotRem != tc.wantRem {
+			t.Errorf("classifyEntry(%q) = (%v, %v), want (%v, %v)", tc.name, gotTask, gotRem, tc.wantTask, tc.wantRem)
+		}
+	}
+
+	if gotTask, gotRem := classifyEntry(nil, "x"); gotTask || gotRem {
+		t.Errorf("classifyEntry(nil) = (%v, %v), want (false, false)", gotTask, gotRem)
+	}
+}
+
 func TestSortNatural(t *testing.T) {
 	input := []string{"task10", "task2", "task1", "task20", "backup", "task3"}
 	sortNatural(input)

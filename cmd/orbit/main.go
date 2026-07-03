@@ -120,18 +120,32 @@ var exactTime bool
 func main() {
 	rootCmd.PersistentFlags().BoolVar(&exactTime, "exact", false, "Show absolute timestamps instead of relative times")
 
-	rootCmd.AddCommand(editCmd())
-	rootCmd.AddCommand(applyCmd())
-	rootCmd.AddCommand(planCmd())
-	rootCmd.AddCommand(listCmd())
-	rootCmd.AddCommand(nextCmd())
-	rootCmd.AddCommand(doctorCmd())
-	rootCmd.AddCommand(taskCmd())
-	rootCmd.AddCommand(reminderCmd())
-	rootCmd.AddCommand(rootAckCmd())
-	rootCmd.AddCommand(rootSnoozeCmd())
-	rootCmd.AddCommand(enableCmd())
-	rootCmd.AddCommand(disableCmd())
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "manage", Title: "Managing tasks & reminders:"},
+		&cobra.Group{ID: "overview", Title: "Overview:"},
+		&cobra.Group{ID: "config", Title: "Configuration:"},
+		&cobra.Group{ID: "namespaces", Title: "Explicit namespaces (task/reminder):"},
+	)
+
+	addGroup := func(groupID string, cmds ...*cobra.Command) {
+		for _, c := range cmds {
+			c.GroupID = groupID
+			rootCmd.AddCommand(c)
+		}
+	}
+
+	addGroup("manage",
+		rootRunCmd(),
+		rootStatusCmd(),
+		rootLogsCmd(),
+		rootAckCmd(),
+		rootSnoozeCmd(),
+		enableCmd(),
+		disableCmd(),
+	)
+	addGroup("overview", listCmd(), nextCmd(), doctorCmd())
+	addGroup("config", editCmd(), applyCmd(), planCmd())
+	addGroup("namespaces", taskCmd(), reminderCmd())
 
 	rootCmd.AddCommand(versionCmd())
 

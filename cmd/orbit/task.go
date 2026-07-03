@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
@@ -15,10 +16,9 @@ const defaultLogLines = 50
 
 func taskCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "task",
-		Short:   "Task management commands",
-		Long:    `Manage orbit tasks: run, list, status, logs.`,
-		Aliases: []string{"t"},
+		Use:   "task",
+		Short: "Task management commands",
+		Long:  `Manage orbit tasks: run, list, status, logs.`,
 	}
 
 	cmd.AddCommand(taskRunCmd())
@@ -37,50 +37,58 @@ func taskRunCmd() *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		Aliases:           []string{"r"},
 		ValidArgsFunction: completeNames(taskNames),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			stateStore, err := newState()
-			if err != nil {
-				return err
-			}
-
-			name, err := pickName(args, "Select task to run:", stateStore, kindTask, taskNames)
-			if err != nil {
-				return err
-			}
-			taskConfig, ok := stateStore.GetAppliedTask(name)
-			if !ok {
-				return notAppliedErr(kindTask, name)
-			}
-
-			fmt.Printf("Running task %q\n", name)
-			fmt.Printf("  command: %s\n", taskConfig.Command)
-			attempts := taskConfig.Retry.Attempts
-			if attempts > 0 {
-				fmt.Printf("  retries: %d attempts, %s delay\n", attempts, taskConfig.Retry.Delay)
-			}
-			fmt.Println()
-
-			start := time.Now()
-			runErr := systemd.NewManager().RunTaskNow(name)
-
-			printTaskRunLogs(name, start)
-
-			if runErr != nil {
-				return runErr
-			}
-
-			// The 'orbit _run' subprocess wrote fresh state to disk; reload it.
-			if fresh, err := newState(); err == nil {
-				ts := fresh.GetTaskState(name)
-				fmt.Printf("\nTask %s completed successfully (%s)\n", name, formatDuration(ts.LastDurationMs))
-			} else {
-				fmt.Printf("\nTask %s completed successfully\n", name)
-			}
-			return nil
-		},
+		RunE:              taskRunRunE,
 	}
 
 	return cmd
+}
+
+// taskRunRunE is the shared implementation for the run command (used by both
+// "task run" and root "run").
+func taskRunRunE(cmd *cobra.Command, args []string) error {
+	stateStore, err := newState()
+	if err != nil {
+		return err
+	}
+
+	if err := rejectWrongKind(stateStore, args, kindTask); err != nil {
+		return err
+	}
+
+	name, err := pickName(args, "Select task to run:", stateStore, kindTask, taskNames)
+	if err != nil {
+		return err
+	}
+	taskConfig, ok := stateStore.GetAppliedTask(name)
+	if !ok {
+		return notAppliedErr(kindTask, name)
+	}
+
+	fmt.Printf("Running task %q\n", name)
+	fmt.Printf("  command: %s\n", taskConfig.Command)
+	attempts := taskConfig.Retry.Attempts
+	if attempts > 0 {
+		fmt.Printf("  retries: %d attempts, %s delay\n", attempts, taskConfig.Retry.Delay)
+	}
+	fmt.Println()
+
+	start := time.Now()
+	runErr := systemd.NewManager().RunTaskNow(name)
+
+	printTaskRunLogs(name, start)
+
+	if runErr != nil {
+		return runErr
+	}
+
+	// The 'orbit _run' subprocess wrote fresh state to disk; reload it.
+	if fresh, err := newState(); err == nil {
+		ts := fresh.GetTaskState(name)
+		fmt.Printf("\nTask %s completed successfully (%s)\n", name, formatDuration(ts.LastDurationMs))
+	} else {
+		fmt.Printf("\nTask %s completed successfully\n", name)
+	}
+	return nil
 }
 
 // printTaskRunLogs prints a task service's journal output since the given start
@@ -168,52 +176,57 @@ func taskStatusCmd() *cobra.Command {
 				return err
 			}
 
-			taskConfig, ok := stateStore.GetAppliedTask(name)
-			if !ok {
-				return notAppliedErr(kindTask, name)
-			}
-
-			ts := stateStore.GetTaskState(name)
-
-			fmt.Printf("Task:                  %s\n", name)
-			fmt.Printf("Command:               %s\n", taskConfig.Command)
-			scheduleDisplay := "(manual)"
-			if taskConfig.Schedule != "" {
-				scheduleDisplay = taskConfig.Schedule
-			}
-			fmt.Printf("Schedule:              %s\n", scheduleDisplay)
-			if taskConfig.Schedule != "" {
-				fmt.Printf("On missed:             %s\n", taskConfig.OnMissed)
-			}
-			fmt.Printf("Retry attempts:        %d\n", taskConfig.Retry.Attempts)
-			fmt.Printf("Retry delay:           %s\n", taskConfig.Retry.Delay)
-			fmt.Println()
-			fmt.Printf("Last run:              %s\n", formatTime(ts.LastRun))
-			failed, _ := systemd.NewManager().FailedServices([]string{name})
-			if reason, ok := failed[name]; ok {
-				fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit task logs %s')", reason, name)))
-			} else {
-				exitCodeStr := green("0")
-				if ts.LastExitCode != 0 {
-					exitCodeStr = red(fmt.Sprintf("%d", ts.LastExitCode))
-				}
-				fmt.Printf("Last exit code:        %s\n", exitCodeStr)
-			}
-			fmt.Printf("Last duration:         %s\n", formatDuration(ts.LastDurationMs))
-			failuresStr := "0"
-			if ts.ConsecutiveFailures > 0 {
-				failuresStr = red(fmt.Sprintf("%d", ts.ConsecutiveFailures))
-			}
-			fmt.Printf("Consecutive failures:  %s\n", failuresStr)
-			fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
-
-			if taskConfig.Schedule != "" {
-				nextRunStr := resolveNextRun(taskConfig.Schedule)
-				fmt.Printf("Next run:              %s\n", nextRunStr)
-			}
-			return nil
+			return printTaskStatus(stateStore, name)
 		},
 	}
+}
+
+// printTaskStatus renders the detailed status view for a single task.
+func printTaskStatus(stateStore *state.State, name string) error {
+	taskConfig, ok := stateStore.GetAppliedTask(name)
+	if !ok {
+		return notAppliedErr(kindTask, name)
+	}
+
+	ts := stateStore.GetTaskState(name)
+
+	fmt.Printf("Task:                  %s\n", name)
+	fmt.Printf("Command:               %s\n", taskConfig.Command)
+	scheduleDisplay := "(manual)"
+	if taskConfig.Schedule != "" {
+		scheduleDisplay = taskConfig.Schedule
+	}
+	fmt.Printf("Schedule:              %s\n", scheduleDisplay)
+	if taskConfig.Schedule != "" {
+		fmt.Printf("On missed:             %s\n", taskConfig.OnMissed)
+	}
+	fmt.Printf("Retry attempts:        %d\n", taskConfig.Retry.Attempts)
+	fmt.Printf("Retry delay:           %s\n", taskConfig.Retry.Delay)
+	fmt.Println()
+	fmt.Printf("Last run:              %s\n", formatTime(ts.LastRun))
+	failed, _ := systemd.NewManager().FailedServices([]string{name})
+	if reason, ok := failed[name]; ok {
+		fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit logs %s')", reason, name)))
+	} else {
+		exitCodeStr := green("0")
+		if ts.LastExitCode != 0 {
+			exitCodeStr = red(fmt.Sprintf("%d", ts.LastExitCode))
+		}
+		fmt.Printf("Last exit code:        %s\n", exitCodeStr)
+	}
+	fmt.Printf("Last duration:         %s\n", formatDuration(ts.LastDurationMs))
+	failuresStr := "0"
+	if ts.ConsecutiveFailures > 0 {
+		failuresStr = red(fmt.Sprintf("%d", ts.ConsecutiveFailures))
+	}
+	fmt.Printf("Consecutive failures:  %s\n", failuresStr)
+	fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
+
+	if taskConfig.Schedule != "" {
+		nextRunStr := resolveNextRun(taskConfig.Schedule)
+		fmt.Printf("Next run:              %s\n", nextRunStr)
+	}
+	return nil
 }
 
 func taskLogsCmd() *cobra.Command {
@@ -227,40 +240,7 @@ func taskLogsCmd() *cobra.Command {
 		Long:              `Show journalctl logs for a task's systemd service.`,
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeNames(taskNames),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			stateStore, err := newState()
-			if err != nil {
-				return err
-			}
-
-			name, err := pickName(args, "Select task:", stateStore, kindTask, taskNames)
-			if err != nil {
-				return err
-			}
-
-			unitName := systemd.TaskServiceName(name)
-
-			journalArgs := []string{"--user", "-u", unitName, "--no-pager"}
-
-			if since != "" {
-				journalArgs = append(journalArgs, "--since", since)
-			} else {
-				journalArgs = append(journalArgs, "-n", fmt.Sprintf("%d", lines))
-			}
-
-			if follow {
-				journalArgs = append(journalArgs, "-f")
-			}
-
-			c := exec.Command("journalctl", journalArgs...)
-			c.Stdout = os.Stdout
-			c.Stderr = os.Stderr
-
-			if err := c.Run(); err != nil {
-				return fmt.Errorf("fetching logs: %w", err)
-			}
-			return nil
-		},
+		RunE:              taskLogsRunE(&follow, &since, &lines),
 	}
 
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
@@ -268,6 +248,49 @@ func taskLogsCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&lines, "lines", "n", defaultLogLines, "Number of log lines to show")
 
 	return cmd
+}
+
+// taskLogsRunE is the shared implementation for the logs command (used by both
+// "task logs" and root "logs").
+func taskLogsRunE(follow *bool, since *string, lines *int) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		stateStore, err := newState()
+		if err != nil {
+			return err
+		}
+
+		if err := rejectWrongKind(stateStore, args, kindTask); err != nil {
+			return err
+		}
+
+		name, err := pickName(args, "Select task:", stateStore, kindTask, taskNames)
+		if err != nil {
+			return err
+		}
+
+		unitName := systemd.TaskServiceName(name)
+
+		journalArgs := []string{"--user", "-u", unitName, "--no-pager"}
+
+		if *since != "" {
+			journalArgs = append(journalArgs, "--since", *since)
+		} else {
+			journalArgs = append(journalArgs, "-n", fmt.Sprintf("%d", *lines))
+		}
+
+		if *follow {
+			journalArgs = append(journalArgs, "-f")
+		}
+
+		c := exec.Command("journalctl", journalArgs...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+
+		if err := c.Run(); err != nil {
+			return fmt.Errorf("fetching logs: %w", err)
+		}
+		return nil
+	}
 }
 
 // formatTime formats a time.Time for display.
