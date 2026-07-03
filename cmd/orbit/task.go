@@ -165,11 +165,16 @@ func taskStatusCmd() *cobra.Command {
 			fmt.Printf("Retry delay:           %s\n", taskConfig.Retry.Delay)
 			fmt.Println()
 			fmt.Printf("Last run:              %s\n", formatTime(ts.LastRun))
-			exitCodeStr := green("0")
-			if ts.LastExitCode != 0 {
-				exitCodeStr = red(fmt.Sprintf("%d", ts.LastExitCode))
+			systemdResult, err := systemd.NewManager().ServiceResult(name)
+			if err == nil && systemdResult != "" && systemdResult != "success" {
+				fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit task logs %s')", systemdResult, name)))
+			} else {
+				exitCodeStr := green("0")
+				if ts.LastExitCode != 0 {
+					exitCodeStr = red(fmt.Sprintf("%d", ts.LastExitCode))
+				}
+				fmt.Printf("Last exit code:        %s\n", exitCodeStr)
 			}
-			fmt.Printf("Last exit code:        %s\n", exitCodeStr)
 			fmt.Printf("Last duration:         %s\n", formatDuration(ts.LastDurationMs))
 			failuresStr := "0"
 			if ts.ConsecutiveFailures > 0 {

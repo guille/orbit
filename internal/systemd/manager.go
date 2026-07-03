@@ -367,6 +367,17 @@ func (m *Manager) RemoveUnits(units []Unit) error {
 	return m.daemonReload()
 }
 
+// ServiceResult returns the last Result of a task's service unit via systemctl show.
+// Returns "success", "exit-code", "signal", etc. Returns an error if the unit
+// doesn't exist or systemctl fails.
+func (m *Manager) ServiceResult(taskName string) (string, error) {
+	output, err := m.systemctlOutput("show", TaskServiceName(taskName), "--property=Result", "--value")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
+}
+
 // ListUnits returns the names of all orbit-managed units known to systemd.
 func (m *Manager) ListUnits() ([]string, error) {
 	args := m.systemctlArgs("list-unit-files", "--all", "--no-legend", "--no-pager")
