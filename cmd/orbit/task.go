@@ -143,7 +143,7 @@ func taskStatusCmd() *cobra.Command {
 		Short:             "Detailed view of one task",
 		Long:              `Show detailed information about a specific task.`,
 		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"st"},
+		Aliases:           []string{"s", "st"},
 		ValidArgsFunction: completeNames(taskNames),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()

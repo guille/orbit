@@ -148,7 +148,7 @@ func reminderStatusCmd() *cobra.Command {
 		Short:             "Detailed view of one reminder",
 		Long:              `Show detailed information about a specific reminder.`,
 		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"st"},
+		Aliases:           []string{"s", "st"},
 		ValidArgsFunction: completeNames(reminderNames),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()
@@ -387,6 +387,7 @@ func reminderSnoozeCmd() *cobra.Command {
 		Short:             "Snooze a reminder",
 		Long:              `Snooze a reminder for a specified duration (e.g. 2h, 30m). If no duration is given, uses the default from config.`,
 		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"zz"},
 		ValidArgsFunction: completeNames(reminderNames),
 		RunE:              snoozeRunE(&duration),
 	}
