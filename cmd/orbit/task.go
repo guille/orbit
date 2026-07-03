@@ -177,6 +177,11 @@ func taskStatusCmd() *cobra.Command {
 			}
 			fmt.Printf("Consecutive failures:  %s\n", failuresStr)
 			fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
+
+			if taskConfig.Schedule != "" {
+				nextRunStr := resolveNextRun(taskConfig.Schedule)
+				fmt.Printf("Next run:              %s\n", nextRunStr)
+			}
 			return nil
 		},
 	}
