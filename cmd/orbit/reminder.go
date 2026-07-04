@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
@@ -109,13 +108,7 @@ func printAllReminders(applied *state.AppliedConfig, stateStore *state.State) {
 
 // printPendingReminders prints a table of only pending and snoozed reminders.
 func printPendingReminders(applied *state.AppliedConfig, stateStore *state.State) {
-	var active []string
-	for name := range applied.Reminders {
-		rs := stateStore.GetReminderState(name)
-		if rs.State == state.StatePending || rs.State == state.StateSnoozed {
-			active = append(active, name)
-		}
-	}
+	active := actionableReminderNames(applied, stateStore)
 	sortNatural(active)
 
 	if len(active) == 0 {
@@ -254,13 +247,9 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 
 	if reminderConfig.Command != "" {
 		shouldRun := autoRun
-		if !shouldRun && term.IsTerminal(int(os.Stdin.Fd())) {
+		if !shouldRun && isInteractive() {
 			fmt.Printf("Reminder has a command: %s\n", reminderConfig.Command)
-			fmt.Print("Run it? [Y/n] ")
-			var answer string
-			//nolint:errcheck
-			fmt.Scanln(&answer)
-			shouldRun = answer != "n" && answer != "N" && answer != "no"
+			shouldRun = confirm("Run it?")
 		}
 		if shouldRun {
 			fmt.Printf("Running: %s\n", reminderConfig.Command)
@@ -434,8 +423,7 @@ func actionableReminderNames(applied *state.AppliedConfig, stateStore *state.Sta
 	}
 	var names []string
 	for name := range applied.Reminders {
-		rs := stateStore.GetReminderState(name)
-		if rs.State == state.StatePending || rs.State == state.StateSnoozed {
+		if reminder.IsActionable(stateStore.GetReminderState(name)) {
 			names = append(names, name)
 		}
 	}

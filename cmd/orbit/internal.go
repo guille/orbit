@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/notify"
@@ -90,7 +91,7 @@ func notifyInternalCmd() *cobra.Command {
 			}
 
 			// Check if snoozed before Fire() changes state
-			wasSnoozed := stateStore.GetReminderState(name).State == state.StateSnoozed
+			wasSnoozed := reminder.IsSnoozed(stateStore.GetReminderState(name))
 
 			if err := h.Fire(name); err != nil {
 				return fmt.Errorf("saving state: %w", err)
@@ -302,6 +303,20 @@ func iconPath() (string, error) {
 
 func notAppliedErr(kind entryKind, name string) error {
 	return fmt.Errorf("%s '%s' not found in applied config (run 'orbit apply' first)", kind, name)
+}
+
+// isInteractive reports whether stdin is a terminal, i.e. whether we can prompt.
+func isInteractive() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// confirm prints a yes/no prompt (defaulting to yes) and reports the answer.
+func confirm(prompt string) bool {
+	fmt.Printf("%s [Y/n] ", prompt)
+	var answer string
+	//nolint:errcheck
+	fmt.Scanln(&answer)
+	return answer != "n" && answer != "N" && answer != "no"
 }
 
 func removeSnoozeTimer(manager *systemd.Manager, name string) {

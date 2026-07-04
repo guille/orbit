@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/picker"
+	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
@@ -109,6 +110,32 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 		names = []string{name}
 	}
 
+	// Disabling a pending or snoozed reminder dismisses it; confirm first so the
+	// dismissal is a deliberate acknowledgment rather than a silent one.
+	if disable {
+		var pending, snoozed []string
+		for _, name := range names {
+			if !applied.HasReminder(name) {
+				continue
+			}
+			rs := stateStore.GetReminderState(name)
+			if rs.Disabled || !reminder.IsActionable(rs) {
+				continue
+			}
+			if reminder.IsSnoozed(rs) {
+				snoozed = append(snoozed, name)
+			} else {
+				pending = append(pending, name)
+			}
+		}
+		if len(pending)+len(snoozed) > 0 && isInteractive() {
+			if !confirm(disableDismissPrompt(pending, snoozed)) {
+				fmt.Println("Cancelled.")
+				return nil
+			}
+		}
+	}
+
 	manager := systemd.NewManager()
 	var changed int
 	var toStop, toStart []string
@@ -136,6 +163,12 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 			rs := stateStore.GetReminderState(name)
 			if rs.Disabled != disable {
 				rs.Disabled = disable
+				if disable && reminder.IsActionable(rs) {
+					if reminder.IsSnoozed(rs) {
+						removeSnoozeTimer(manager, name)
+					}
+					rs = reminder.Dismiss(rs)
+				}
 				stateStore.SetReminderState(name, rs)
 				changed++
 
@@ -179,6 +212,25 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 		fmt.Printf("'%s' %s.\n", bold(names[0]), colorAction)
 	}
 	return nil
+}
+
+// disableDismissPrompt builds the confirmation message for disabling reminders
+// that are currently pending or snoozed.
+func disableDismissPrompt(pending, snoozed []string) string {
+	switch {
+	case len(pending) == 1 && len(snoozed) == 0:
+		return fmt.Sprintf("'%s' is pending — disabling will dismiss it (its command won't run). Continue?", pending[0])
+	case len(pending) == 0 && len(snoozed) == 1:
+		return fmt.Sprintf("'%s' is snoozed — disabling will cancel the snooze. Continue?", snoozed[0])
+	}
+	var parts []string
+	if len(pending) > 0 {
+		parts = append(parts, fmt.Sprintf("dismiss %d pending", len(pending)))
+	}
+	if len(snoozed) > 0 {
+		parts = append(parts, fmt.Sprintf("cancel snooze on %d", len(snoozed)))
+	}
+	return fmt.Sprintf("Disabling will %s reminder(s). Continue?", joinAnd(parts))
 }
 
 func allEntryNames() []string {

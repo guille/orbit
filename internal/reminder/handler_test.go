@@ -276,6 +276,66 @@ func TestHandler_Fire_OnAcknowledged(t *testing.T) {
 	}
 }
 
+func TestHandler_Fire_Disabled(t *testing.T) {
+	ms := newMockState()
+	ms.reminders["test"] = state.ReminderState{State: state.StateAcknowledged, Disabled: true}
+	h := NewHandler(ms)
+
+	if err := h.Fire("test"); err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+
+	rs := ms.reminders["test"]
+	if rs.State != state.StateAcknowledged {
+		t.Errorf("disabled reminder should not fire, got state %q", rs.State)
+	}
+	if ms.saved {
+		t.Error("expected no save when a disabled reminder is fired")
+	}
+}
+
+func TestDismiss(t *testing.T) {
+	until := time.Now().Add(time.Hour)
+	tests := []struct {
+		name string
+		in   state.ReminderState
+		want state.ReminderStatus
+		// clears reports whether snooze/overdue should be cleared.
+		clears bool
+	}{
+		{"pending", state.ReminderState{State: state.StatePending, OverdueCount: 3}, state.StateAcknowledged, true},
+		{"snoozed", state.ReminderState{State: state.StateSnoozed, SnoozedUntil: &until, OverdueCount: 2}, state.StateAcknowledged, true},
+		{"acknowledged", state.ReminderState{State: state.StateAcknowledged}, state.StateAcknowledged, false},
+		{"new", state.ReminderState{}, "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Dismiss(tc.in)
+			if got.State != tc.want {
+				t.Errorf("state = %q, want %q", got.State, tc.want)
+			}
+			if tc.clears {
+				if got.SnoozedUntil != nil {
+					t.Error("expected SnoozedUntil cleared")
+				}
+				if got.OverdueCount != 0 {
+					t.Errorf("expected overdue 0, got %d", got.OverdueCount)
+				}
+			}
+		})
+	}
+}
+
+func TestDismiss_PreservesDisabled(t *testing.T) {
+	got := Dismiss(state.ReminderState{State: state.StatePending, Disabled: true})
+	if !got.Disabled {
+		t.Error("Dismiss should preserve the Disabled flag")
+	}
+	if got.State != state.StateAcknowledged {
+		t.Errorf("expected acknowledged, got %q", got.State)
+	}
+}
+
 type fakeCheck struct {
 	exitCode int
 	err      error

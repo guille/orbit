@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
@@ -108,7 +109,7 @@ func listCmd() *cobra.Command {
 // reminderStatusString returns a display string for a reminder's current state.
 func reminderStatusString(rs state.ReminderState) string {
 	display := colorizeReminderState(rs.State)
-	if rs.OverdueCount > 1 && (rs.State == state.StatePending || rs.State == state.StateSnoozed) {
+	if rs.OverdueCount > 1 && reminder.IsActionable(rs) {
 		display += fmt.Sprintf(" (%d overdue)", rs.OverdueCount)
 	}
 	return display

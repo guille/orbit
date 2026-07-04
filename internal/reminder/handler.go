@@ -46,14 +46,42 @@ func NewHandler(s StateTracker) *Handler {
 	return &Handler{State: s, Check: shellCheckRunner{}}
 }
 
+// IsActionable reports whether a reminder is awaiting acknowledgment
+// (pending or snoozed).
+func IsActionable(rs state.ReminderState) bool {
+	return rs.State == state.StatePending || rs.State == state.StateSnoozed
+}
+
+// IsSnoozed reports whether a reminder is currently snoozed.
+func IsSnoozed(rs state.ReminderState) bool {
+	return rs.State == state.StateSnoozed
+}
+
+// Dismiss clears a pending or snoozed fire, returning the reminder to the
+// acknowledged state with its overdue count and snooze cleared. Reminders in
+// any other state are returned unchanged.
+func Dismiss(rs state.ReminderState) state.ReminderState {
+	if !IsActionable(rs) {
+		return rs
+	}
+	rs.State = state.StateAcknowledged
+	rs.SnoozedUntil = nil
+	rs.OverdueCount = 0
+	return rs
+}
+
 // Fire records that a reminder has been triggered. If the reminder is
 // already pending or snoozed, the overdue count is incremented (stacking).
-// Otherwise it transitions to pending with overdue count 1.
+// Otherwise it transitions to pending with overdue count 1. Disabled
+// reminders never fire.
 func (h *Handler) Fire(name string) error {
 	rs := h.State.GetReminderState(name)
+	if rs.Disabled {
+		return nil
+	}
 	now := time.Now()
 
-	if rs.State == state.StatePending || rs.State == state.StateSnoozed {
+	if IsActionable(rs) {
 		rs.OverdueCount++
 	} else {
 		rs.OverdueCount = 1
@@ -92,15 +120,11 @@ func (h *Handler) CheckPasses(name, check string) (bool, error) {
 // Returns false if the reminder is not in a pending or snoozed state.
 func (h *Handler) Ack(name string) (acknowledged bool, err error) {
 	rs := h.State.GetReminderState(name)
-	if rs.State != state.StatePending && rs.State != state.StateSnoozed {
+	if !IsActionable(rs) {
 		return false, nil
 	}
 
-	rs.State = state.StateAcknowledged
-	rs.SnoozedUntil = nil
-	rs.OverdueCount = 0
-
-	h.State.SetReminderState(name, rs)
+	h.State.SetReminderState(name, Dismiss(rs))
 	return true, h.State.Save()
 }
 
@@ -108,7 +132,7 @@ func (h *Handler) Ack(name string) (acknowledged bool, err error) {
 // Returns an error if the reminder is not in a pending or snoozed state.
 func (h *Handler) Snooze(name string, until time.Time) error {
 	rs := h.State.GetReminderState(name)
-	if rs.State != state.StatePending && rs.State != state.StateSnoozed {
+	if !IsActionable(rs) {
 		return &InvalidStateError{Name: name, State: rs.State}
 	}
 

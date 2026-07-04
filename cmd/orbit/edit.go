@@ -123,11 +123,8 @@ func editCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Print("\nApply these changes? [Y/n] ")
-			var answer string
-			//nolint:errcheck
-			fmt.Scanln(&answer)
-			if answer == "n" || answer == "N" || answer == "no" {
+			fmt.Println()
+			if !confirm("Apply these changes?") {
 				fmt.Printf("Run %s when you're ready.\n", bold("orbit apply"))
 				return nil
 			}
