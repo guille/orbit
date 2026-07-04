@@ -1,4 +1,4 @@
-name: golangci-lint
+name: CI
 on:
   push:
     branches:
@@ -9,7 +9,21 @@ permissions:
   contents: read
 
 jobs:
-  golangci:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Unit tests
+        run: go test ./...
+      - name: E2E tests
+        run: go test -tags e2e ./test/e2e/...
+
+  lint:
     name: lint
     runs-on: ubuntu-latest
     steps:
@@ -22,3 +36,4 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12
+          args: --build-tags=e2e ./...

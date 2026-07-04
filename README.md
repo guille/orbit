@@ -4,6 +4,9 @@
 
 # Orbit
 
+[![CI](https://github.com/guille/orbit/actions/workflows/ci.yaml/badge.svg)](https://github.com/guille/orbit/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/guille/orbit)](https://github.com/guille/orbit/releases)
+
 A declarative CLI tool to manage tasks and reminders, using systemd as its back-end.
 
 Define your scheduled tasks and reminders in a single TOML file, and Orbit manages the systemd timers and services for you.
