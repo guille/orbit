@@ -7,6 +7,9 @@ run = "go clean"
 [tasks.test]
 run = "gotestsum ./..."
 
+[tasks."test:e2e"]
+run = "gotestsum -- -tags e2e ./test/e2e/..."
+
 [tasks.fmt]
 run = "go fmt ./..."
 
@@ -23,7 +26,7 @@ run     = "go fix ./..."
 [tasks.golangci]
 hide    = true  # use check
 depends = ["fmt"]
-run     = "golangci-lint run ./..."
+run     = "golangci-lint run --build-tags e2e ./..."
 
 [tasks.govulncheck]
 hide    = true  # use check
