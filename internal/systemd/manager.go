@@ -3,15 +3,10 @@ package systemd
 import (
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
-
-	"go.guillerg.dev/orbit/internal/config"
 )
 
 // Systemctl abstracts systemctl command execution for testability.
@@ -35,302 +30,9 @@ type Manager struct {
 	ctl Systemctl // systemctl executor
 }
 
-// execBin returns the quoted command token for ExecStart.
-// Empty defaults to bare "orbit".
-func execBin(orbitBin string) string {
-	if orbitBin == "" {
-		orbitBin = "orbit"
-	}
-	return fmt.Sprintf("%q", orbitBin)
-}
-
 // NewManager creates a new systemd manager for user-level units.
 func NewManager() *Manager {
 	return &Manager{ctl: realSystemctl{}}
-}
-
-// Unit represents a systemd unit file.
-type Unit struct {
-	Name       string
-	Content    string
-	OldContent string // populated for updates only: the previous on-disk content
-}
-
-// Unit name helpers — single source of truth for orbit unit naming.
-
-// TaskServiceName returns the systemd service unit name for a task.
-func TaskServiceName(name string) string {
-	return "orbit-task-" + name + ".service"
-}
-
-// TaskTimerName returns the systemd timer unit name for a task.
-func TaskTimerName(name string) string {
-	return "orbit-task-" + name + ".timer"
-}
-
-// ReminderServiceName returns the systemd service unit name for a reminder.
-func ReminderServiceName(name string) string {
-	return "orbit-reminder-" + name + ".service"
-}
-
-// ReminderTimerName returns the systemd timer unit name for a reminder.
-func ReminderTimerName(name string) string {
-	return "orbit-reminder-" + name + ".timer"
-}
-
-// SnoozeTimerName returns the systemd timer unit name for a snoozed reminder.
-func SnoozeTimerName(name string) string {
-	return "orbit-snooze-" + name + ".timer"
-}
-
-// IsOrbitUnit returns true if the unit name is managed by orbit.
-func IsOrbitUnit(name string) bool {
-	return strings.HasPrefix(name, "orbit-task-") ||
-		strings.HasPrefix(name, "orbit-reminder-") ||
-		strings.HasPrefix(name, "orbit-snooze-")
-}
-
-var serviceTemplate = template.Must(template.New("service").Parse(`[Unit]
-Description=Orbit task {{.Name}}
-
-[Service]
-Type=oneshot
-WorkingDirectory=%h
-ExecStart={{.ExecCommand}}
-`))
-
-var timerTemplate = template.Must(template.New("timer").Parse(`[Unit]
-Description=Timer for orbit task {{.Name}}
-
-[Timer]
-OnCalendar={{.Schedule}}
-Persistent={{.Persistent}}
-
-[Install]
-WantedBy=timers.target
-`))
-
-var reminderServiceTemplate = template.Must(template.New("reminder-service").Parse(`[Unit]
-Description=Orbit reminder {{.Name}}
-
-[Service]
-Type=oneshot
-WorkingDirectory=%h
-ExecStart={{.ExecCommand}}
-`))
-
-var reminderTimerTemplate = template.Must(template.New("reminder-timer").Parse(`[Unit]
-Description=Timer for orbit reminder {{.Name}}
-
-[Timer]
-OnCalendar={{.Schedule}}
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-`))
-
-var snoozeTimerTemplate = template.Must(template.New("snooze-timer").Parse(`[Unit]
-Description=Snooze timer for orbit reminder {{.Name}}
-
-[Timer]
-OnCalendar={{.OnCalendar}}
-Persistent=true
-Unit={{.ServiceUnit}}
-
-[Install]
-WantedBy=timers.target
-`))
-
-// GenerateTaskUnits generates units for a task.
-// If schedule is empty, only a service unit is generated (no timer).
-// Otherwise, both a service and timer unit are generated.
-func (m *Manager) GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, orbitBin string) ([]Unit, error) {
-	serviceData := struct {
-		Name        string
-		ExecCommand string
-	}{
-		Name:        name,
-		ExecCommand: fmt.Sprintf(`%s _run %s`, execBin(orbitBin), name),
-	}
-
-	var serviceBuf strings.Builder
-	if err := serviceTemplate.Execute(&serviceBuf, serviceData); err != nil {
-		return nil, fmt.Errorf("generating service unit: %w", err)
-	}
-
-	units := []Unit{
-		{Name: TaskServiceName(name), Content: serviceBuf.String()},
-	}
-
-	if schedule == "" {
-		return units, nil
-	}
-
-	persistent := "true"
-	if onMissed == config.OnMissedSkip {
-		persistent = "false"
-	}
-
-	timerData := struct {
-		Name       string
-		Schedule   string
-		Persistent string
-	}{
-		Name:       name,
-		Schedule:   schedule,
-		Persistent: persistent,
-	}
-
-	var timerBuf strings.Builder
-	if err := timerTemplate.Execute(&timerBuf, timerData); err != nil {
-		return nil, fmt.Errorf("generating timer unit: %w", err)
-	}
-
-	units = append(units, Unit{Name: TaskTimerName(name), Content: timerBuf.String()})
-	return units, nil
-}
-
-// GenerateReminderUnits generates service and timer units for a reminder.
-// schedule is a systemd OnCalendar expression.
-func (m *Manager) GenerateReminderUnits(name, schedule, orbitBin string) ([]Unit, error) {
-	serviceData := struct {
-		Name        string
-		ExecCommand string
-	}{
-		Name:        name,
-		ExecCommand: fmt.Sprintf(`%s _notify %s`, execBin(orbitBin), name),
-	}
-
-	var serviceBuf strings.Builder
-	if err := reminderServiceTemplate.Execute(&serviceBuf, serviceData); err != nil {
-		return nil, fmt.Errorf("generating reminder service unit: %w", err)
-	}
-
-	timerData := struct {
-		Name     string
-		Schedule string
-	}{
-		Name:     name,
-		Schedule: schedule,
-	}
-
-	var timerBuf strings.Builder
-	if err := reminderTimerTemplate.Execute(&timerBuf, timerData); err != nil {
-		return nil, fmt.Errorf("generating reminder timer unit: %w", err)
-	}
-
-	return []Unit{
-		{Name: ReminderServiceName(name), Content: serviceBuf.String()},
-		{Name: ReminderTimerName(name), Content: timerBuf.String()},
-	}, nil
-}
-
-// GenerateSnoozeTimer generates a persistent snooze timer for a reminder.
-// The timer triggers the reminder's existing service unit at the specified time.
-func (m *Manager) GenerateSnoozeTimer(name string, until time.Time) (Unit, error) {
-	data := struct {
-		Name        string
-		OnCalendar  string
-		ServiceUnit string
-	}{
-		Name:        name,
-		OnCalendar:  until.Format("2006-01-02 15:04:05"),
-		ServiceUnit: ReminderServiceName(name),
-	}
-
-	var buf strings.Builder
-	if err := snoozeTimerTemplate.Execute(&buf, data); err != nil {
-		return Unit{}, fmt.Errorf("generating snooze timer unit: %w", err)
-	}
-
-	return Unit{Name: SnoozeTimerName(name), Content: buf.String()}, nil
-}
-
-// ChangeSet describes the set of changes needed to reconcile desired state.
-type ChangeSet struct {
-	Create []Unit // new units to create
-	Update []Unit // existing units whose content changed
-	Remove []Unit // units to delete
-	Keep   []Unit // units that are already up-to-date
-}
-
-// ClassifyChanges compares desired units against what's on disk and returns
-// a ChangeSet. This is the foundation for a future `orbit plan` command.
-func (m *Manager) ClassifyChanges(desired []Unit, existingNames []string) ChangeSet {
-	systemdDir := m.UnitDir()
-
-	existingSet := make(map[string]bool, len(existingNames))
-	for _, name := range existingNames {
-		existingSet[name] = true
-	}
-
-	desiredSet := make(map[string]bool, len(desired))
-
-	var cs ChangeSet
-
-	for _, unit := range desired {
-		desiredSet[unit.Name] = true
-
-		if !existingSet[unit.Name] {
-			cs.Create = append(cs.Create, unit)
-			continue
-		}
-
-		// Read existing content to check for updates
-		existing, err := os.ReadFile(filepath.Join(systemdDir, unit.Name))
-		if err != nil {
-			// Can't read — treat as create
-			cs.Create = append(cs.Create, unit)
-			continue
-		}
-
-		if string(existing) != unit.Content {
-			unit.OldContent = string(existing)
-			cs.Update = append(cs.Update, unit)
-		} else {
-			cs.Keep = append(cs.Keep, unit)
-		}
-	}
-
-	for _, name := range existingNames {
-		if !desiredSet[name] {
-			cs.Remove = append(cs.Remove, Unit{Name: name})
-		}
-	}
-
-	return cs
-}
-
-// RemoveUnits stops, disables, and deletes the given units,
-// then reloads the daemon once.
-func (m *Manager) RemoveUnits(units []Unit) error {
-	systemdDir := m.UnitDir()
-
-	var allNames []string
-	var timerNames []string
-	for _, unit := range units {
-		allNames = append(allNames, unit.Name)
-		if strings.HasSuffix(unit.Name, ".timer") {
-			timerNames = append(timerNames, unit.Name)
-		}
-	}
-
-	if len(allNames) > 0 {
-		m.systemctl("stop", allNames...)
-	}
-	if len(timerNames) > 0 {
-		m.systemctl("disable", timerNames...)
-	}
-
-	for _, unit := range units {
-		unitPath := filepath.Join(systemdDir, unit.Name)
-		if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("removing unit file %s: %w", unit.Name, err)
-		}
-	}
-
-	return m.daemonReload()
 }
 
 // FailedServices returns, for each given task whose service unit's last run did
@@ -467,150 +169,22 @@ func (m *Manager) ListUnits() ([]string, error) {
 	return units, nil
 }
 
-// VerifyUnits runs systemd-analyze verify on the given unit file paths in a
-// single invocation. Returns the verification output and an error if any unit
-// fails.
-func (m *Manager) VerifyUnits(paths ...string) (string, error) {
-	if len(paths) == 0 {
-		return "", nil
+// StopAndDisableTimers stops and disables multiple timer units in batch.
+func (m *Manager) StopAndDisableTimers(timerNames []string) {
+	if len(timerNames) == 0 {
+		return
 	}
-	args := append([]string{"verify"}, paths...)
-	cmd := exec.Command("systemd-analyze", args...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	m.systemctl("stop", timerNames...)
+	m.systemctl("disable", timerNames...)
 }
 
-// LogOptions controls which journal entries StreamUnitLogs shows.
-type LogOptions struct {
-	Follow bool
-	Since  string // journalctl --since; takes precedence over Lines
-	Lines  int
-}
-
-// StreamUnitLogs streams a unit's journal to the given writers via journalctl.
-// It blocks until journalctl exits (indefinitely when opts.Follow is set).
-func (m *Manager) StreamUnitLogs(unitName string, opts LogOptions, stdout, stderr io.Writer) error {
-	c := exec.Command("journalctl", journalArgs(unitName, opts)...)
-	c.Stdout = stdout
-	c.Stderr = stderr
-	return c.Run()
-}
-
-// journalArgs builds the journalctl arguments for a unit's logs.
-func journalArgs(unitName string, opts LogOptions) []string {
-	args := []string{"--user", "-u", unitName, "--no-pager"}
-	if opts.Since != "" {
-		args = append(args, "--since", opts.Since)
-	} else {
-		args = append(args, "-n", strconv.Itoa(opts.Lines))
+// EnableAndStartTimers enables and starts multiple timer units in batch.
+func (m *Manager) EnableAndStartTimers(timerNames []string) {
+	if len(timerNames) == 0 {
+		return
 	}
-	if opts.Follow {
-		args = append(args, "-f")
-	}
-	return args
-}
-
-// NextElapse returns the next trigger time for an OnCalendar expression, via
-// `systemd-analyze calendar`.
-func (m *Manager) NextElapse(schedule string) (time.Time, error) {
-	out, err := exec.Command("systemd-analyze", "calendar", schedule, "--iterations=1").CombinedOutput()
-	if err != nil {
-		return time.Time{}, fmt.Errorf("resolving schedule %q: %w", schedule, err)
-	}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "Next elapse:"); ok {
-			return parseCalendarTime(strings.TrimSpace(after))
-		}
-	}
-	return time.Time{}, fmt.Errorf("no next elapse for schedule %q", schedule)
-}
-
-// parseCalendarTime parses a systemd-analyze calendar timestamp
-// ("Day YYYY-MM-DD HH:MM:SS TZ").
-func parseCalendarTime(s string) (time.Time, error) {
-	for _, layout := range []string{
-		"Mon 2006-01-02 15:04:05 MST",
-		"Mon 2006-01-02 15:04:05 -0700",
-		"2006-01-02 15:04:05 MST",
-	} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
-}
-
-// WriteUnits creates a temporary directory, writes all unit files into it,
-// and returns the directory path along with a cleanup function that removes
-// the temporary directory. The caller must call cleanup when done (typically
-// via defer). InstallUnits removes the directory on success, so cleanup
-// becomes a no-op after a successful install.
-func (m *Manager) WriteUnits(units []Unit) (tmpDir string, cleanup func(), err error) {
-	systemdDir := m.UnitDir()
-	if err := os.MkdirAll(systemdDir, 0755); err != nil {
-		return "", nil, fmt.Errorf("creating systemd directory: %w", err)
-	}
-	tmpDir, err = os.MkdirTemp(systemdDir, ".orbit-staging-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("creating temp directory: %w", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(tmpDir) }
-	for _, unit := range units {
-		dest := filepath.Join(tmpDir, unit.Name)
-		if err := os.WriteFile(dest, []byte(unit.Content), 0644); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("writing unit file %s: %w", unit.Name, err)
-		}
-	}
-	return tmpDir, cleanup, nil
-}
-
-// InstallUnits moves unit files from a staging directory (e.g. returned by
-// WriteUnits) into the systemd user unit directory, performs a daemon-reload,
-// and enables/starts any timer units. The staging directory is NOT removed
-// — the caller's cleanup callback handles that.
-func (m *Manager) InstallUnits(units []Unit, fromDir string) error {
-	systemdDir := m.UnitDir()
-	if err := os.MkdirAll(systemdDir, 0755); err != nil {
-		return fmt.Errorf("creating systemd directory: %w", err)
-	}
-
-	for _, unit := range units {
-		src := filepath.Join(fromDir, unit.Name)
-		dst := filepath.Join(systemdDir, unit.Name)
-		if err := os.Rename(src, dst); err != nil {
-			return fmt.Errorf("installing unit file %s: %w", unit.Name, err)
-		}
-	}
-
-	if err := m.daemonReload(); err != nil {
-		return err
-	}
-
-	var timers []string
-	for _, unit := range units {
-		if strings.HasSuffix(unit.Name, ".timer") {
-			timers = append(timers, unit.Name)
-		}
-	}
-	if len(timers) > 0 {
-		args := append([]string{"enable", "--now"}, timers...)
-		output, err := m.systemctlOutput(args[0], args[1:]...)
-		if err != nil {
-			return fmt.Errorf("enabling timers: %w (output: %s)", err, output)
-		}
-	}
-
-	return nil
-}
-
-// UnitDir returns the path to the user systemd unit directory.
-func (m *Manager) UnitDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot determine user config directory: %v\n", err)
-	}
-	return filepath.Join(dir, "systemd", "user")
+	args := append([]string{"--now"}, timerNames...)
+	m.systemctl("enable", args...)
 }
 
 // daemonReload runs systemctl daemon-reload.
@@ -644,20 +218,75 @@ func (m *Manager) systemctlArgs(subcmd string, args ...string) []string {
 	return result
 }
 
-// StopAndDisableTimers stops and disables multiple timer units in batch.
-func (m *Manager) StopAndDisableTimers(timerNames []string) {
-	if len(timerNames) == 0 {
-		return
+// VerifyUnits runs systemd-analyze verify on the given unit file paths in a
+// single invocation. Returns the verification output and an error if any unit
+// fails.
+func (m *Manager) VerifyUnits(paths ...string) (string, error) {
+	if len(paths) == 0 {
+		return "", nil
 	}
-	m.systemctl("stop", timerNames...)
-	m.systemctl("disable", timerNames...)
+	args := append([]string{"verify"}, paths...)
+	cmd := exec.Command("systemd-analyze", args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
-// EnableAndStartTimers enables and starts multiple timer units in batch.
-func (m *Manager) EnableAndStartTimers(timerNames []string) {
-	if len(timerNames) == 0 {
-		return
+// NextElapse returns the next trigger time for an OnCalendar expression, via
+// `systemd-analyze calendar`.
+func (m *Manager) NextElapse(schedule string) (time.Time, error) {
+	out, err := exec.Command("systemd-analyze", "calendar", schedule, "--iterations=1").CombinedOutput()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("resolving schedule %q: %w", schedule, err)
 	}
-	args := append([]string{"--now"}, timerNames...)
-	m.systemctl("enable", args...)
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "Next elapse:"); ok {
+			return parseCalendarTime(strings.TrimSpace(after))
+		}
+	}
+	return time.Time{}, fmt.Errorf("no next elapse for schedule %q", schedule)
+}
+
+// parseCalendarTime parses a systemd-analyze calendar timestamp
+// ("Day YYYY-MM-DD HH:MM:SS TZ").
+func parseCalendarTime(s string) (time.Time, error) {
+	for _, layout := range []string{
+		"Mon 2006-01-02 15:04:05 MST",
+		"Mon 2006-01-02 15:04:05 -0700",
+		"2006-01-02 15:04:05 MST",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
+}
+
+// LogOptions controls which journal entries StreamUnitLogs shows.
+type LogOptions struct {
+	Follow bool
+	Since  string // journalctl --since; takes precedence over Lines
+	Lines  int
+}
+
+// StreamUnitLogs streams a unit's journal to the given writers via journalctl.
+// It blocks until journalctl exits (indefinitely when opts.Follow is set).
+func (m *Manager) StreamUnitLogs(unitName string, opts LogOptions, stdout, stderr io.Writer) error {
+	c := exec.Command("journalctl", journalArgs(unitName, opts)...)
+	c.Stdout = stdout
+	c.Stderr = stderr
+	return c.Run()
+}
+
+// journalArgs builds the journalctl arguments for a unit's logs.
+func journalArgs(unitName string, opts LogOptions) []string {
+	args := []string{"--user", "-u", unitName, "--no-pager"}
+	if opts.Since != "" {
+		args = append(args, "--since", opts.Since)
+	} else {
+		args = append(args, "-n", strconv.Itoa(opts.Lines))
+	}
+	if opts.Follow {
+		args = append(args, "-f")
+	}
+	return args
 }

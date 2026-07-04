@@ -116,14 +116,14 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 
 	var allUnits []systemd.Unit
 	for name, t := range cfg.Tasks {
-		units, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed, cfg.OrbitBin)
+		units, err := systemd.GenerateTaskUnits(name, t.Schedule, t.OnMissed, cfg.OrbitBin)
 		if err != nil {
 			return fmt.Errorf("generating units for task %s: %w", name, err)
 		}
 		allUnits = append(allUnits, units...)
 	}
 	for name, r := range cfg.Reminders {
-		units, err := manager.GenerateReminderUnits(name, r.Schedule, cfg.OrbitBin)
+		units, err := systemd.GenerateReminderUnits(name, r.Schedule, cfg.OrbitBin)
 		if err != nil {
 			return fmt.Errorf("generating units for reminder %s: %w", name, err)
 		}

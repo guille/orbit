@@ -52,7 +52,7 @@ func doctorCmd() *cobra.Command {
 			applied := stateStore.GetAppliedConfig()
 
 			allPassed = checkAppliedConfig(cfg, applied) && allPassed
-			allPassed = checkSystemdUnitsDrift(cfg, applied) && allPassed
+			allPassed = checkSystemdUnitsDrift(applied) && allPassed
 			allPassed = checkTaskStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
@@ -124,7 +124,7 @@ func checkAppliedConfig(cfg *config.Config, applied *state.AppliedConfig) bool {
 }
 
 // checkSystemdUnitsDrift verifies systemd units match the applied config.
-func checkSystemdUnitsDrift(cfg *config.Config, applied *state.AppliedConfig) bool {
+func checkSystemdUnitsDrift(applied *state.AppliedConfig) bool {
 	nextCheck("Checking systemd units for drift")
 	manager := systemd.NewManager()
 	existingUnits, err := manager.ListUnits()
@@ -133,7 +133,7 @@ func checkSystemdUnitsDrift(cfg *config.Config, applied *state.AppliedConfig) bo
 		return false
 	}
 
-	desiredUnits, ok := generateDesiredUnits(manager, applied)
+	desiredUnits, ok := generateDesiredUnits(applied)
 	if !ok {
 		return false
 	}
@@ -157,7 +157,7 @@ func checkSystemdUnitsDrift(cfg *config.Config, applied *state.AppliedConfig) bo
 	}
 	for _, u := range changes.Remove {
 		// Snooze timers are transient — not orphans.
-		if strings.HasPrefix(u.Name, "orbit-snooze-") {
+		if systemd.IsSnoozeUnit(u.Name) {
 			continue
 		}
 		if !hasDrift {
@@ -176,7 +176,7 @@ func checkSystemdUnitsDrift(cfg *config.Config, applied *state.AppliedConfig) bo
 }
 
 // generateDesiredUnits builds the expected units from applied config.
-func generateDesiredUnits(manager *systemd.Manager, applied *state.AppliedConfig) ([]systemd.Unit, bool) {
+func generateDesiredUnits(applied *state.AppliedConfig) ([]systemd.Unit, bool) {
 	var units []systemd.Unit
 	ok := true
 
@@ -186,7 +186,7 @@ func generateDesiredUnits(manager *systemd.Manager, applied *state.AppliedConfig
 	}
 
 	for name, t := range applied.Tasks {
-		u, err := manager.GenerateTaskUnits(name, t.Schedule, t.OnMissed, applied.OrbitBin)
+		u, err := systemd.GenerateTaskUnits(name, t.Schedule, t.OnMissed, applied.OrbitBin)
 		if err != nil {
 			fmt.Printf("\n   %s: Error generating units for task %s: %v\n", red("FAIL"), name, err)
 			ok = false
@@ -195,7 +195,7 @@ func generateDesiredUnits(manager *systemd.Manager, applied *state.AppliedConfig
 		units = append(units, u...)
 	}
 	for name, r := range applied.Reminders {
-		u, err := manager.GenerateReminderUnits(name, r.Schedule, applied.OrbitBin)
+		u, err := systemd.GenerateReminderUnits(name, r.Schedule, applied.OrbitBin)
 		if err != nil {
 			fmt.Printf("\n   %s: Error generating units for reminder %s: %v\n", red("FAIL"), name, err)
 			ok = false

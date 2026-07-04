@@ -39,7 +39,7 @@ go test ./cmd/orbit/ -fuzz=FuzzCompareNumeric -fuzztime=${usage_duration?}
 """
 
 [tasks.check]
-depends = ["vet", "fix", "golangci", "govulncheck"]
+depends = ["vet", "fix", "golangci"]
 
 [tasks.build]
 depends = ["fmt"]

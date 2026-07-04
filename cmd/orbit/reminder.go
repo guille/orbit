@@ -355,7 +355,7 @@ func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error 
 		// Remove any existing snooze timer first (for re-snooze case)
 		removeSnoozeTimer(manager, name)
 
-		snoozeUnit, err := manager.GenerateSnoozeTimer(name, snoozeUntil)
+		snoozeUnit, err := systemd.GenerateSnoozeTimer(name, snoozeUntil)
 		if err != nil {
 			return fmt.Errorf("generating snooze timer: %w", err)
 		}
