@@ -24,7 +24,7 @@ func listCmd() *cobra.Command {
 			}
 
 			applied := stateStore.GetAppliedConfig()
-			if applied == nil || (len(applied.Tasks) == 0 && len(applied.Reminders) == 0) {
+			if applied.IsEmpty() {
 				fmt.Println("Nothing configured (run 'orbit apply' first)")
 				return nil
 			}

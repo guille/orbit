@@ -72,6 +72,11 @@ func (a *AppliedConfig) Classify(name string) (isTask, isReminder bool) {
 	return a.HasTask(name), a.HasReminder(name)
 }
 
+// IsEmpty reports whether no tasks or reminders have been applied.
+func (a *AppliedConfig) IsEmpty() bool {
+	return a == nil || (len(a.Tasks) == 0 && len(a.Reminders) == 0)
+}
+
 // Names returns all task and reminder names, unsorted.
 func (a *AppliedConfig) Names() []string {
 	if a == nil {

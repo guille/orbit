@@ -29,7 +29,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	}
 
 	applied := stateStore.GetAppliedConfig()
-	if applied == nil || (len(applied.Tasks) == 0 && len(applied.Reminders) == 0) {
+	if applied.IsEmpty() {
 		fmt.Println("Nothing configured.")
 		fmt.Printf("Run %s to create your config, then %s to activate it.\n", bold("orbit edit"), bold("orbit apply"))
 		return nil
