@@ -51,6 +51,8 @@ func editCmd() *cobra.Command {
 # See: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events
 # Test with: systemd-analyze calendar "daily"
 
+# include = ["orbit.d/*.toml", "?local.toml"]  # merge other TOML files ('*' globs, leading '?' = optional)
+
 # [tasks.example]
 # command        = "echo hello"
 # schedule       = "*-*-* 03:00:00"  # omit for manual-only tasks

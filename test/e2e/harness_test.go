@@ -75,10 +75,12 @@ func TestMain(m *testing.M) {
 
 // runFakeSystemd records the invocation (for contract assertions) and returns
 // canned output. It reflects the installed unit files for `list-unit-files` so
-// drift/orphan scenarios are exercised against real on-disk state; other
-// queries succeed with no output.
+// drift/orphan scenarios are exercised against real on-disk state, and answers
+// `show` status queries by replaying the invocation log; other queries succeed
+// with no output.
 func runFakeSystemd() int {
-	if logPath := os.Getenv("ORBIT_FAKE_LOG"); logPath != "" {
+	logPath := os.Getenv("ORBIT_FAKE_LOG")
+	if logPath != "" {
 		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err == nil {
 			_, _ = fmt.Fprintln(f, strings.Join(os.Args, " "))
@@ -86,13 +88,82 @@ func runFakeSystemd() int {
 		}
 	}
 
-	for _, arg := range os.Args {
-		if arg == "list-unit-files" {
+	for i, arg := range os.Args {
+		switch arg {
+		case "list-unit-files":
 			fakeListUnitFiles()
-			break
+			return 0
+		case "show":
+			fakeShow(logPath, os.Args[i+1:])
+			return 0
 		}
 	}
 	return 0
+}
+
+// fakeShow answers `systemctl show --property=... <units>` queries. Unit
+// status is derived by replaying the invocation log, so a unit reports
+// active/enabled iff orbit actually enabled or started it. Result queries
+// (failure detection) print nothing, which orbit parses as "no failures".
+func fakeShow(logPath string, args []string) {
+	var props string
+	var units []string
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "--property="); ok {
+			props = v
+		} else if !strings.HasPrefix(a, "-") {
+			units = append(units, a)
+		}
+	}
+	if !strings.Contains(props, "ActiveState") {
+		return
+	}
+
+	up := replayUnitStates(logPath)
+	for i, u := range units {
+		if i > 0 {
+			fmt.Println()
+		}
+		if up[u] {
+			fmt.Printf("Id=%s\nActiveState=active\nUnitFileState=enabled\n", u)
+		} else {
+			fmt.Printf("Id=%s\nActiveState=inactive\nUnitFileState=disabled\n", u)
+		}
+	}
+}
+
+// replayUnitStates scans the invocation log for lifecycle verbs and returns
+// each unit's latest state (true = enabled/active). enable and start are
+// conflated (orbit always uses enable --now), as are disable and stop.
+func replayUnitStates(logPath string) map[string]bool {
+	up := map[string]bool{}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return up
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		idx, on := -1, false
+		for i, f := range fields {
+			if f == "enable" || f == "start" {
+				idx, on = i, true
+				break
+			}
+			if f == "disable" || f == "stop" {
+				idx, on = i, false
+				break
+			}
+		}
+		if idx < 0 {
+			continue
+		}
+		for _, f := range fields[idx+1:] {
+			if !strings.HasPrefix(f, "-") {
+				up[f] = on
+			}
+		}
+	}
+	return up
 }
 
 // fakeListUnitFiles prints the orbit unit files present in the isolated unit

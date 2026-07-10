@@ -42,6 +42,7 @@ func doctorCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			checkIncludes(cfg) // informational only, never affects allPassed
 
 			allPassed := checkConfigValid(cfg)
 
@@ -68,6 +69,48 @@ func doctorCmd() *cobra.Command {
 			return fmt.Errorf("health checks failed")
 		},
 	})
+}
+
+// checkIncludes reports how include patterns resolved.
+// Warns on non-optional glob patterns that matched nothing.
+// Optional includes ('?' prefix) that loaded nothing are reported as an informational count.
+func checkIncludes(cfg *config.Config) {
+	if len(cfg.IncludeResolutions) == 0 {
+		return
+	}
+	nextCheck("Checking includes")
+
+	var empty []string
+	total, optAbsent := 0, 0
+	for _, res := range cfg.IncludeResolutions {
+		total += len(res.Files)
+		if len(res.Files) > 0 {
+			continue
+		}
+		switch {
+		case res.Optional:
+			optAbsent++
+		case res.IsGlob:
+			empty = append(empty, res.Pattern)
+		}
+		// non-optional literals can't get here: a missing one fails LoadConfig
+	}
+
+	summary := fmt.Sprintf("(%d file%s loaded", total, plural(total))
+	if optAbsent > 0 {
+		summary += fmt.Sprintf(", %d optional not present", optAbsent)
+	}
+	summary += ")"
+
+	if len(empty) == 0 {
+		fmt.Printf("%s %s\n", green("PASS"), summary)
+		return
+	}
+	fmt.Println(yellow("WARNING"))
+	for _, p := range empty {
+		fmt.Printf("   - pattern %q matched no files\n", p)
+	}
+	fmt.Printf("   %s\n", summary)
 }
 
 // checkConfigFile loads and returns the config, or a fatal error.

@@ -32,8 +32,8 @@ func TestDoctorDetectsDrift(t *testing.T) {
 	}
 }
 
-// TestDoctorClean applies a config and expects doctor to find no drift when the
-// installed units match the config.
+// TestDoctorClean applies a scheduled task and expects every doctor check to
+// pass: no drift, timer reported enabled and active, exit 0.
 func TestDoctorClean(t *testing.T) {
 	requireSystemdAnalyze(t)
 
@@ -45,5 +45,11 @@ func TestDoctorClean(t *testing.T) {
 	r := e.run(t, "", "doctor")
 	if contains(r.stdout, "MISSING") || contains(r.stdout, "DRIFTED") || contains(r.stdout, "ORPHAN") {
 		t.Errorf("expected no drift after a clean apply, got:\n%s", r.stdout)
+	}
+	if r.exit != 0 {
+		t.Errorf("doctor should exit 0 after a clean apply, got %d\nstdout: %s\nstderr: %s", r.exit, r.stdout, r.stderr)
+	}
+	if !contains(r.stdout, "All checks passed") {
+		t.Errorf("expected 'All checks passed', got:\n%s", r.stdout)
 	}
 }

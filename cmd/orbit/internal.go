@@ -235,7 +235,7 @@ func getDataDir() (string, error) {
 }
 
 // currentEmbedVersion should be bumped whenever embedded assets (icon.png, schema.json) change.
-const currentEmbedVersion = 2
+const currentEmbedVersion = 3
 
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.

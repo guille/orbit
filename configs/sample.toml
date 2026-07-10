@@ -7,6 +7,14 @@
 # Defaults to "orbit"
 # orbit_bin = "/home/user/.local/share/mise/shims/orbit"
 
+# Merge additional TOML files into this config. Paths are relative to this
+# file. The included files must exist. Use the prefix '?' to make them optional.
+# include = [
+#   "orbit.d/*.toml",
+#   "?local.toml",     # optional
+#   "/abs/path/x.toml"
+# ]
+
 [tasks.backup]
 command        = "rsync -av ~/Documents /mnt/backup/"
 schedule       = "*-*-* 03:00:00"  # daily at 3 AM

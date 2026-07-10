@@ -10,6 +10,14 @@
       "description": "Path to the orbit binary.",
       "default": "orbit"
     },
+    "include": {
+      "type": "array",
+      "description": "Other TOML config files to merge into this one. Paths are relative to this file. A leading '?' makes an include optional; '*' is the only glob wildcard and may match zero files. Included files may only define tasks and reminders.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "tasks": {
       "description": "Task definitions. Each key is the task name.",
       "type": "object",
