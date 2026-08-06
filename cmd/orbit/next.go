@@ -38,13 +38,13 @@ func nextCmd() *cobra.Command {
 			for _, name := range taskNames {
 				taskConfig := applied.Tasks[name]
 				ts := stateStore.GetTaskState(name)
-				tbl.add(name, string(kindTask), scheduleCell(taskConfig.Schedule), taskNextRun(taskConfig, ts))
+				tbl.add(name, string(kindTask), orNone(taskConfig.Schedule), taskNextRun(taskConfig, ts))
 			}
 
 			for _, name := range rNames {
 				reminderConfig := applied.Reminders[name]
 				rs := stateStore.GetReminderState(name)
-				tbl.add(name, string(kindReminder), scheduleCell(reminderConfig.Schedule), reminderNextRun(reminderConfig, rs))
+				tbl.add(name, string(kindReminder), orNone(reminderConfig.Schedule), reminderNextRun(reminderConfig, rs))
 			}
 
 			fmt.Print(tbl)

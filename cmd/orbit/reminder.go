@@ -85,17 +85,17 @@ func printPendingReminders(applied *state.AppliedConfig, stateStore *state.State
 
 // printReminderTable renders the shared reminder listing for the given names.
 func printReminderTable(applied *state.AppliedConfig, stateStore *state.State, names []string) {
-	tbl := newTable(colName, colSchedule, colLastFired, colNextRun, colStatus)
+	tbl := newTable(colName, colSchedule, colLastNotified, colNextRun, colStatus)
 	for _, name := range names {
 		reminderConfig := applied.Reminders[name]
 		rs := stateStore.GetReminderState(name)
 
 		tbl.add(
 			name,
-			scheduleCell(reminderConfig.Schedule),
+			orNone(reminderConfig.Schedule),
 			formatTime(rs.FiredAt),
 			reminderNextRun(reminderConfig, rs),
-			reminderStatusString(rs),
+			reminderStatusString(reminderConfig, rs),
 		)
 	}
 	fmt.Print(tbl)
@@ -136,30 +136,22 @@ func printReminderStatus(stateStore *state.State, name string) error {
 
 	fmt.Printf("Reminder:       %s\n", name)
 	fmt.Printf("Message:        %s\n", reminderConfig.Message)
-	if reminderConfig.Command != "" {
-		fmt.Printf("Command:        %s\n", reminderConfig.Command)
-	} else {
-		fmt.Printf("Command:        (none)\n")
-	}
-	fmt.Printf("Schedule:       %s\n", scheduleCell(reminderConfig.Schedule))
-	if reminderConfig.Check != "" {
-		fmt.Printf("Check:          %s\n", reminderConfig.Check)
-	}
-	fmt.Printf("Snooze default: %s\n", reminderConfig.Snooze)
+	fmt.Printf("Command:        %s\n", orNone(reminderConfig.Command))
+	fmt.Printf("Schedule:       %s\n", orNone(reminderConfig.Schedule))
+	fmt.Printf("Check:          %s\n", orNone(reminderConfig.Check))
+	fmt.Printf("Snooze default: %s\n", orNone(reminderConfig.Snooze))
 	fmt.Println()
 
 	fmt.Printf("Status:         %s\n", colorizeReminderState(rs.State))
-	fmt.Printf("Last fired:     %s\n", formatTime(rs.FiredAt))
+	fmt.Printf("Last notified:  %s\n", formatTime(rs.FiredAt))
 	fmt.Printf("Next run:       %s\n", reminderNextRun(reminderConfig, rs))
 	fmt.Printf("Overdue count:  %d\n", rs.OverdueCount)
 	if reminderConfig.Check != "" && rs.LastCheckExitCode != nil {
-		exitStr := fmt.Sprintf("%d", *rs.LastCheckExitCode)
+		outcome := dim("condition not met")
 		if *rs.LastCheckExitCode == 0 {
-			exitStr = green(exitStr) + " (condition met)"
-		} else {
-			exitStr = dim(exitStr) + " (condition not met)"
+			outcome = green("condition met")
 		}
-		fmt.Printf("Last check:     %s at %s\n", exitStr, formatTime(rs.LastCheckAt))
+		fmt.Printf("Last check:     %s (exit %d, %s)\n", formatTime(rs.LastCheckAt), *rs.LastCheckExitCode, outcome)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"go.guillerg.dev/orbit/internal/reminder"
@@ -18,21 +19,21 @@ const (
 
 // Column headers. Listings use a subset in this order.
 const (
-	colName      = "NAME"
-	colType      = "TYPE"
-	colSchedule  = "SCHEDULE"
-	colLastRun   = "LAST RUN"
-	colLastFired = "LAST FIRED"
-	colNextRun   = "NEXT RUN"
-	colStatus    = "STATUS"
+	colName         = "NAME"
+	colType         = "TYPE"
+	colSchedule     = "SCHEDULE"
+	colLastRun      = "LAST RUN"
+	colLastNotified = "LAST NOTIFIED"
+	colNextRun      = "NEXT RUN"
+	colStatus       = "STATUS"
 )
 
-// scheduleCell renders a SCHEDULE cell.
-func scheduleCell(schedule string) string {
-	if schedule == "" {
+// orNone renders an optional config value, marking an unset one.
+func orNone(value string) string {
+	if value == "" {
 		return cellNone
 	}
-	return schedule
+	return value
 }
 
 // taskNextRun renders a task's NEXT RUN cell.
@@ -79,17 +80,37 @@ func taskStatusString(ts state.TaskState, systemdFailed bool) string {
 	}
 }
 
-// reminderStatusString returns a display string for a reminder's current state,
-// folding in a repeated-overdue count when one is pending.
-func reminderStatusString(rs state.ReminderState) string {
+// reminderStatusString returns a display string for a reminder's current state.
+func reminderStatusString(reminderConfig state.AppliedReminderConfig, rs state.ReminderState) string {
 	if rs.Disabled {
 		return dim("disabled")
 	}
-	display := colorizeReminderState(rs.State)
+
+	var notes []string
 	if rs.OverdueCount > 1 && reminder.IsActionable(rs) {
-		display += fmt.Sprintf(" (%d overdue)", rs.OverdueCount)
+		notes = append(notes, fmt.Sprintf("%d overdue", rs.OverdueCount))
+	}
+	if note := lastCheckedString(reminderConfig, rs); note != "" {
+		notes = append(notes, note)
+	}
+
+	display := colorizeReminderState(rs.State)
+	if len(notes) > 0 {
+		display += fmt.Sprintf(" (%s)", strings.Join(notes, ", "))
 	}
 	return display
+}
+
+// lastCheckedString reports how recently a gating check ran, but only while that check
+// is failing.
+func lastCheckedString(reminderConfig state.AppliedReminderConfig, rs state.ReminderState) string {
+	if reminderConfig.Check == "" || rs.LastCheckExitCode == nil || *rs.LastCheckExitCode == 0 {
+		return ""
+	}
+	if rs.LastCheckAt.IsZero() {
+		return ""
+	}
+	return "checked " + formatTime(rs.LastCheckAt)
 }
 
 // colorizeReminderState applies color to a reminder state string for display.

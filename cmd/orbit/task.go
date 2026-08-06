@@ -117,7 +117,7 @@ func taskListCmd() *cobra.Command {
 
 				tbl.add(
 					name,
-					scheduleCell(taskConfig.Schedule),
+					orNone(taskConfig.Schedule),
 					formatTime(ts.LastRun),
 					taskNextRun(taskConfig, ts),
 					taskStatusString(ts, failed[name] != ""),
@@ -164,7 +164,7 @@ func printTaskStatus(stateStore *state.State, name string) error {
 
 	fmt.Printf("Task:                  %s\n", name)
 	fmt.Printf("Command:               %s\n", taskConfig.Command)
-	fmt.Printf("Schedule:              %s\n", scheduleCell(taskConfig.Schedule))
+	fmt.Printf("Schedule:              %s\n", orNone(taskConfig.Schedule))
 	if taskConfig.Schedule != "" {
 		fmt.Printf("On missed:             %s\n", taskConfig.OnMissed)
 	}
