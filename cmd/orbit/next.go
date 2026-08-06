@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
@@ -28,47 +27,27 @@ func nextCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%-20s %-10s %-20s %-30s\n", "NAME", "TYPE", "SCHEDULE", "NEXT RUN")
-			fmt.Printf("%-20s %-10s %-20s %-30s\n", "----", "----", "--------", "--------")
-
 			taskNames := applied.TaskNames()
 			sortNatural(taskNames)
 
 			rNames := applied.ReminderNames()
 			sortNatural(rNames)
 
+			tbl := newTable(colName, colType, colSchedule, colNextRun)
+
 			for _, name := range taskNames {
 				taskConfig := applied.Tasks[name]
 				ts := stateStore.GetTaskState(name)
-				if ts.Disabled {
-					fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindTask, taskConfig.Schedule, dim("(disabled)"))
-					continue
-				}
-				if taskConfig.Schedule == "" {
-					fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindTask, "(manual)", "-")
-					continue
-				}
-				nextRun := resolveNextRun(taskConfig.Schedule)
-				fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindTask, taskConfig.Schedule, nextRun)
+				tbl.add(name, string(kindTask), scheduleCell(taskConfig.Schedule), taskNextRun(taskConfig, ts))
 			}
 
 			for _, name := range rNames {
 				reminderConfig := applied.Reminders[name]
 				rs := stateStore.GetReminderState(name)
-
-				if rs.Disabled {
-					fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindReminder, reminderConfig.Schedule, dim("(disabled)"))
-					continue
-				}
-
-				if rs.State == state.StateSnoozed && rs.SnoozedUntil != nil && rs.SnoozedUntil.After(time.Now()) {
-					nextRun := formatTime(*rs.SnoozedUntil) + " (snoozed)"
-					fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindReminder, reminderConfig.Schedule, nextRun)
-				} else {
-					nextRun := resolveNextRun(reminderConfig.Schedule)
-					fmt.Printf("%-20s %-10s %-20s %-30s\n", name, kindReminder, reminderConfig.Schedule, nextRun)
-				}
+				tbl.add(name, string(kindReminder), scheduleCell(reminderConfig.Schedule), reminderNextRun(reminderConfig, rs))
 			}
+
+			fmt.Print(tbl)
 			return nil
 		},
 	}

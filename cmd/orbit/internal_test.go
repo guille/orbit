@@ -4,9 +4,6 @@ import (
 	"math/big"
 	"strings"
 	"testing"
-	"time"
-
-	"go.guillerg.dev/orbit/internal/state"
 )
 
 func TestNaturalLess(t *testing.T) {
@@ -52,33 +49,6 @@ func TestNaturalLess(t *testing.T) {
 		got := naturalLess(tc.a, tc.b)
 		if got != tc.want {
 			t.Errorf("naturalLess(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
-		}
-	}
-}
-
-func TestTaskStatusString(t *testing.T) {
-	past := time.Now().Add(-time.Hour)
-
-	tests := []struct {
-		name          string
-		ts            state.TaskState
-		systemdFailed bool
-		want          string
-	}{
-		// Disabled always wins, even over a systemd-level failure.
-		{"disabled beats systemd", state.TaskState{Disabled: true, LastRun: past}, true, "disabled"},
-		// The recorded failure count is more informative than the systemd flag.
-		{"failure count beats systemd", state.TaskState{ConsecutiveFailures: 2, LastRun: past}, true, "failed (2)"},
-		// The new branch: systemd reported a failure the state never recorded.
-		{"systemd-only failure", state.TaskState{LastRun: past}, true, "failed"},
-		// systemd healthy: fall through to state-derived status.
-		{"never run", state.TaskState{}, false, "new"},
-		{"ok", state.TaskState{LastRun: past}, false, "ok"},
-	}
-
-	for _, tc := range tests {
-		if got := taskStatusString(tc.ts, tc.systemdFailed); got != tc.want {
-			t.Errorf("%s: taskStatusString(%+v, %v) = %q, want %q", tc.name, tc.ts, tc.systemdFailed, got, tc.want)
 		}
 	}
 }

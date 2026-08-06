@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"unicode/utf8"
 )
 
 // ANSI color codes. Disabled when NO_COLOR env is set or stdout is not a terminal.
@@ -62,9 +63,14 @@ func bold(s string) string {
 	return "\033[1m" + s + "\033[0m"
 }
 
+// visibleLen returns the rendered width of s, ignoring ANSI escape sequences.
+func visibleLen(s string) int {
+	return utf8.RuneCountInString(ansiRe.ReplaceAllString(s, ""))
+}
+
 // padRight pads a (possibly ANSI-colored) string to the given visible width.
 func padRight(s string, width int) string {
-	visible := len(ansiRe.ReplaceAllString(s, ""))
+	visible := visibleLen(s)
 	if visible >= width {
 		return s
 	}

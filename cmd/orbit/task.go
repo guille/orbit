@@ -91,7 +91,7 @@ func taskListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Short:   "List all tasks",
-		Long:    `Show all tasks with their last run, next run, and status.`,
+		Long:    `Show all tasks with their schedule, last run, next run, and status.`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()
@@ -105,30 +105,25 @@ func taskListCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%-20s %-20s %-30s %-15s\n", "TASK", "LAST RUN", "NEXT RUN", "STATUS")
-			fmt.Printf("%-20s %-20s %-30s %-15s\n", "----", "--------", "--------", "------")
-
 			names := applied.TaskNames()
 			sortNatural(names)
 
 			failed, _ := systemd.NewManager().FailedServices(names)
 
+			tbl := newTable(colName, colSchedule, colLastRun, colNextRun, colStatus)
 			for _, name := range names {
 				taskConfig := applied.Tasks[name]
 				ts := stateStore.GetTaskState(name)
 
-				lastRunStr := "never"
-				if !ts.LastRun.IsZero() {
-					lastRunStr = formatTime(ts.LastRun)
-				}
-
-				nextRunStr := "(manual)"
-				if taskConfig.Schedule != "" {
-					nextRunStr = resolveNextRun(taskConfig.Schedule)
-				}
-
-				fmt.Printf("%-20s %-20s %-30s %-15s\n", name, lastRunStr, nextRunStr, taskStatusString(ts, failed[name] != ""))
+				tbl.add(
+					name,
+					scheduleCell(taskConfig.Schedule),
+					formatTime(ts.LastRun),
+					taskNextRun(taskConfig, ts),
+					taskStatusString(ts, failed[name] != ""),
+				)
 			}
+			fmt.Print(tbl)
 			return nil
 		},
 	}
@@ -169,11 +164,7 @@ func printTaskStatus(stateStore *state.State, name string) error {
 
 	fmt.Printf("Task:                  %s\n", name)
 	fmt.Printf("Command:               %s\n", taskConfig.Command)
-	scheduleDisplay := "(manual)"
-	if taskConfig.Schedule != "" {
-		scheduleDisplay = taskConfig.Schedule
-	}
-	fmt.Printf("Schedule:              %s\n", scheduleDisplay)
+	fmt.Printf("Schedule:              %s\n", scheduleCell(taskConfig.Schedule))
 	if taskConfig.Schedule != "" {
 		fmt.Printf("On missed:             %s\n", taskConfig.OnMissed)
 	}
@@ -199,10 +190,7 @@ func printTaskStatus(stateStore *state.State, name string) error {
 	fmt.Printf("Consecutive failures:  %s\n", failuresStr)
 	fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
 
-	if taskConfig.Schedule != "" {
-		nextRunStr := resolveNextRun(taskConfig.Schedule)
-		fmt.Printf("Next run:              %s\n", nextRunStr)
-	}
+	fmt.Printf("Next run:              %s\n", taskNextRun(taskConfig, ts))
 	return nil
 }
 
@@ -210,7 +198,7 @@ func printTaskStatus(stateStore *state.State, name string) error {
 // Uses relative time by default; absolute with --exact flag.
 func formatTime(t time.Time) string {
 	if t.IsZero() {
-		return "never"
+		return cellNever
 	}
 	if exactTime {
 		return t.Format("2006-01-02 15:04:05")

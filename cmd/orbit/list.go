@@ -6,8 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.guillerg.dev/orbit/internal/reminder"
-	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
@@ -15,7 +13,7 @@ func listCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Short:   "List all tasks and reminders",
-		Long:    `Show all configured tasks and reminders with their type, schedule, next run, and status.`,
+		Long:    `Show all configured tasks and reminders with their type, schedule, last run, next run, and status.`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stateStore, err := newState()
@@ -25,16 +23,14 @@ func listCmd() *cobra.Command {
 
 			applied := stateStore.GetAppliedConfig()
 			if applied.IsEmpty() {
-				fmt.Println("Nothing configured (run 'orbit apply' first)")
+				fmt.Println("No tasks or reminders configured (run 'orbit apply' first)")
 				return nil
 			}
 
 			type row struct {
-				name     string
-				kind     entryKind
-				schedule string
-				nextRun  string
-				status   string
+				name  string
+				kind  entryKind
+				cells []string
 			}
 
 			var rows []row
@@ -43,45 +39,26 @@ func listCmd() *cobra.Command {
 
 			for name, taskConfig := range applied.Tasks {
 				ts := stateStore.GetTaskState(name)
-
-				var nextRunStr string
-				if ts.Disabled {
-					nextRunStr = dim("(disabled)")
-				} else {
-					nextRunStr = "(manual)"
-					if taskConfig.Schedule != "" {
-						nextRunStr = resolveNextRun(taskConfig.Schedule)
-					}
-				}
-
-				rows = append(rows, row{
-					name:     name,
-					kind:     kindTask,
-					schedule: taskConfig.Schedule,
-					nextRun:  nextRunStr,
-					status:   taskStatusString(ts, failed[name] != ""),
-				})
+				rows = append(rows, row{name: name, kind: kindTask, cells: []string{
+					name,
+					string(kindTask),
+					scheduleCell(taskConfig.Schedule),
+					formatTime(ts.LastRun),
+					taskNextRun(taskConfig, ts),
+					taskStatusString(ts, failed[name] != ""),
+				}})
 			}
 
 			for name, reminderConfig := range applied.Reminders {
 				rs := stateStore.GetReminderState(name)
-
-				var nextRunStr, statusStr string
-				if rs.Disabled {
-					nextRunStr = dim("(disabled)")
-					statusStr = dim("disabled")
-				} else {
-					nextRunStr = resolveNextRun(reminderConfig.Schedule)
-					statusStr = reminderStatusString(rs)
-				}
-
-				rows = append(rows, row{
-					name:     name,
-					kind:     kindReminder,
-					schedule: reminderConfig.Schedule,
-					nextRun:  nextRunStr,
-					status:   statusStr,
-				})
+				rows = append(rows, row{name: name, kind: kindReminder, cells: []string{
+					name,
+					string(kindReminder),
+					scheduleCell(reminderConfig.Schedule),
+					formatTime(rs.FiredAt),
+					reminderNextRun(reminderConfig, rs),
+					reminderStatusString(rs),
+				}})
 			}
 
 			sort.Slice(rows, func(i, j int) bool {
@@ -91,44 +68,13 @@ func listCmd() *cobra.Command {
 				return naturalLess(rows[i].name, rows[j].name)
 			})
 
-			fmt.Printf("%-20s %-10s %-20s %-30s %-15s\n", "NAME", "TYPE", "SCHEDULE", "NEXT RUN", "STATUS")
-			fmt.Printf("%-20s %-10s %-20s %-30s %-15s\n", "----", "----", "--------", "--------", "------")
+			tbl := newTable(colName, colType, colSchedule, colLastRun, colNextRun, colStatus)
 			for _, r := range rows {
-				scheduleStr := r.schedule
-				if scheduleStr == "" {
-					scheduleStr = "(none)"
-				}
-				fmt.Printf("%-20s %-10s %-20s %s %s\n", r.name, r.kind, scheduleStr, padRight(r.nextRun, 30), r.status)
+				tbl.add(r.cells...)
 			}
+			fmt.Print(tbl)
 
 			return nil
 		},
-	}
-}
-
-// reminderStatusString returns a display string for a reminder's current state.
-func reminderStatusString(rs state.ReminderState) string {
-	display := colorizeReminderState(rs.State)
-	if rs.OverdueCount > 1 && reminder.IsActionable(rs) {
-		display += fmt.Sprintf(" (%d overdue)", rs.OverdueCount)
-	}
-	return display
-}
-
-// taskStatusString returns a colored display string for a task's current status.
-// systemdFailed reports whether the task's last run failed at the systemd level,
-// covering failures the persisted state never recorded.
-func taskStatusString(ts state.TaskState, systemdFailed bool) string {
-	switch {
-	case ts.Disabled:
-		return dim("disabled")
-	case ts.ConsecutiveFailures > 0:
-		return red(fmt.Sprintf("failed (%d)", ts.ConsecutiveFailures))
-	case systemdFailed:
-		return red("failed")
-	case ts.LastRun.IsZero():
-		return dim("new")
-	default:
-		return green("ok")
 	}
 }

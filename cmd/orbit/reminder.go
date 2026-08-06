@@ -13,32 +13,6 @@ import (
 	"go.guillerg.dev/orbit/internal/systemd"
 )
 
-// colorizeReminderState applies color to a reminder state string for display.
-func colorizeReminderState(s state.ReminderStatus) string {
-	switch s {
-	case state.StatePending, state.StateSnoozed:
-		return yellow(s.String())
-	case state.StateAcknowledged:
-		return green(s.String())
-	default:
-		return dim(s.String())
-	}
-}
-
-func firedAtDisplay(rs state.ReminderState) string {
-	if rs.FiredAt.IsZero() {
-		return "never"
-	}
-	return formatTime(rs.FiredAt)
-}
-
-func snoozeDisplay(rs state.ReminderState) string {
-	if rs.SnoozedUntil == nil {
-		return "-"
-	}
-	return formatTime(*rs.SnoozedUntil)
-}
-
 func reminderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reminder",
@@ -91,19 +65,9 @@ func reminderListCmd() *cobra.Command {
 
 // printAllReminders prints a table of all configured reminders with their state.
 func printAllReminders(applied *state.AppliedConfig, stateStore *state.State) {
-	fmt.Printf("%-25s %-15s %-20s %-20s\n", "REMINDER", "STATE", "FIRED AT", "SNOOZE UNTIL")
-	fmt.Printf("%-25s %-15s %-20s %-20s\n", "--------", "-----", "--------", "------------")
-
 	names := applied.ReminderNames()
 	sortNatural(names)
-
-	for _, name := range names {
-		rs := stateStore.GetReminderState(name)
-
-		coloredState := colorizeReminderState(rs.State)
-
-		fmt.Printf("%-25s %s %-20s %-20s\n", name, padRight(coloredState, 15), firedAtDisplay(rs), snoozeDisplay(rs))
-	}
+	printReminderTable(applied, stateStore, names)
 }
 
 // printPendingReminders prints a table of only pending and snoozed reminders.
@@ -116,20 +80,25 @@ func printPendingReminders(applied *state.AppliedConfig, stateStore *state.State
 		return
 	}
 
-	fmt.Printf("%-25s %-15s %-10s %-20s %-20s\n", "REMINDER", "STATE", "OVERDUE", "FIRED AT", "SNOOZE UNTIL")
-	fmt.Printf("%-25s %-15s %-10s %-20s %-20s\n", "--------", "-----", "-------", "--------", "------------")
+	printReminderTable(applied, stateStore, active)
+}
 
-	for _, name := range active {
+// printReminderTable renders the shared reminder listing for the given names.
+func printReminderTable(applied *state.AppliedConfig, stateStore *state.State, names []string) {
+	tbl := newTable(colName, colSchedule, colLastFired, colNextRun, colStatus)
+	for _, name := range names {
+		reminderConfig := applied.Reminders[name]
 		rs := stateStore.GetReminderState(name)
 
-		fmt.Printf("%-25s %s %-10d %-20s %-20s\n",
+		tbl.add(
 			name,
-			padRight(colorizeReminderState(rs.State), 15),
-			rs.OverdueCount,
-			firedAtDisplay(rs),
-			snoozeDisplay(rs),
+			scheduleCell(reminderConfig.Schedule),
+			formatTime(rs.FiredAt),
+			reminderNextRun(reminderConfig, rs),
+			reminderStatusString(rs),
 		)
 	}
+	fmt.Print(tbl)
 }
 
 func reminderStatusCmd() *cobra.Command {
@@ -172,19 +141,16 @@ func printReminderStatus(stateStore *state.State, name string) error {
 	} else {
 		fmt.Printf("Command:        (none)\n")
 	}
-	fmt.Printf("Schedule:       %s\n", reminderConfig.Schedule)
+	fmt.Printf("Schedule:       %s\n", scheduleCell(reminderConfig.Schedule))
 	if reminderConfig.Check != "" {
 		fmt.Printf("Check:          %s\n", reminderConfig.Check)
 	}
 	fmt.Printf("Snooze default: %s\n", reminderConfig.Snooze)
 	fmt.Println()
 
-	coloredState := colorizeReminderState(rs.State)
-	fmt.Printf("State:          %s\n", coloredState)
-	fmt.Printf("Fired at:       %s\n", formatTime(rs.FiredAt))
-	if rs.SnoozedUntil != nil {
-		fmt.Printf("Fires:          %s\n", formatTime(*rs.SnoozedUntil))
-	}
+	fmt.Printf("Status:         %s\n", colorizeReminderState(rs.State))
+	fmt.Printf("Last fired:     %s\n", formatTime(rs.FiredAt))
+	fmt.Printf("Next run:       %s\n", reminderNextRun(reminderConfig, rs))
 	fmt.Printf("Overdue count:  %d\n", rs.OverdueCount)
 	if reminderConfig.Check != "" && rs.LastCheckExitCode != nil {
 		exitStr := fmt.Sprintf("%d", *rs.LastCheckExitCode)
@@ -417,13 +383,16 @@ func rootSnoozeCmd() *cobra.Command {
 }
 
 // actionableReminderNames returns reminder names that are pending or snoozed.
+// Disabled reminders are excluded: they cannot fire, so they are never awaiting
+// a response.
 func actionableReminderNames(applied *state.AppliedConfig, stateStore *state.State) []string {
 	if applied == nil {
 		return nil
 	}
 	var names []string
 	for name := range applied.Reminders {
-		if reminder.IsActionable(stateStore.GetReminderState(name)) {
+		rs := stateStore.GetReminderState(name)
+		if !rs.Disabled && reminder.IsActionable(rs) {
 			names = append(names, name)
 		}
 	}
