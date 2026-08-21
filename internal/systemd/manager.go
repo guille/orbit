@@ -143,7 +143,7 @@ func (m *Manager) RunTaskNow(taskName string) error {
 
 // ListUnits returns the names of all orbit-managed units known to systemd.
 func (m *Manager) ListUnits() ([]string, error) {
-	args := m.systemctlArgs("list-unit-files", "--all", "--no-legend", "--no-pager")
+	args := m.systemctlArgs("list-unit-files", "--all", "--no-legend", "--no-pager", orbitUnitGlob)
 
 	output, err := m.ctl.Run(args...)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -152,6 +153,10 @@ func TestListUnits_WithMock(t *testing.T) {
 	args := mock.Calls[0]
 	if args[0] != "--user" {
 		t.Errorf("expected --user flag, got %v", args)
+	}
+	// The glob keeps systemd from enumerating every unit on the system.
+	if !slices.Contains(args, orbitUnitGlob) {
+		t.Errorf("expected %q pattern, got %v", orbitUnitGlob, args)
 	}
 }
 

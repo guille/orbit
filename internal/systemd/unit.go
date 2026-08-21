@@ -35,6 +35,10 @@ func SnoozeTimerName(name string) string {
 	return "orbit-snooze-" + name + ".timer"
 }
 
+// orbitUnitGlob narrows unit listings server-side. It admits a superset of
+// IsOrbitUnit, which stays the authoritative filter.
+const orbitUnitGlob = "orbit-*"
+
 // IsOrbitUnit returns true if the unit name is managed by orbit.
 func IsOrbitUnit(name string) bool {
 	return strings.HasPrefix(name, "orbit-task-") ||
