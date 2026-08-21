@@ -342,7 +342,7 @@ func (s *State) Save() error {
 	}
 
 	tmpFile := s.filePath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := writeFileSync(tmpFile, data); err != nil {
 		s.restoreDirtyState(oldDirtyTasks, oldDirtyReminders, oldDeletedTasks, oldDeletedReminders, oldDirtyAppliedConfig, oldDirtyEmbedVersion)
 		return fmt.Errorf("writing temporary state file: %w", err)
 	}
@@ -351,9 +351,47 @@ func (s *State) Save() error {
 		s.restoreDirtyState(oldDirtyTasks, oldDirtyReminders, oldDeletedTasks, oldDeletedReminders, oldDirtyAppliedConfig, oldDirtyEmbedVersion)
 		return fmt.Errorf("renaming state file: %w", err)
 	}
+	syncDir(filepath.Dir(s.filePath))
 
 	s.updateSentinelFile()
 	return nil
+}
+
+// writeFileSync writes data to path and flushes it to stable storage. The
+// rename that follows is atomic for other readers either way, but without the
+// flush a power loss can land the rename while the contents are still missing,
+// leaving an empty state file that load() reads as "nothing configured".
+func writeFileSync(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		//nolint:errcheck
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		//nolint:errcheck
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// syncDir flushes a directory entry so that a rename into it survives a power
+// loss. Best-effort: by the time it runs the rename has already succeeded and
+// every reader sees the new state, so a failure here is not worth failing the
+// save over.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	//nolint:errcheck
+	d.Sync()
+	//nolint:errcheck
+	d.Close()
 }
 
 // restoreDirtyState re-marks fields as dirty after a failed save, ensuring the next Save() retries.
