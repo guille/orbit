@@ -492,6 +492,197 @@ func TestUnitsToRemove(t *testing.T) {
 	}
 }
 
+// writtenUnitNames returns the sorted names of the units unitsToWrite emits.
+// unitsToWrite iterates config maps, so only the set is deterministic.
+func writtenUnitNames(t *testing.T, cfg *config.Config, cs configChangeSet, force bool) []string {
+	t.Helper()
+	units, err := unitsToWrite(cfg, cs, force)
+	if err != nil {
+		t.Fatalf("unitsToWrite: %v", err)
+	}
+	names := make([]string, 0, len(units))
+	for _, u := range units {
+		names = append(names, u.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// twoTaskTwoReminderCfg is a config with two of each kind, so tests can assert
+// that untouched entries are left alone.
+func twoTaskTwoReminderCfg() *config.Config {
+	return &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: "weekly", OnMissed: "run_once"},
+		},
+		Reminders: map[string]config.ReminderConfig{
+			"review":  {Schedule: "weekly", Message: "Do review"},
+			"standup": {Schedule: "daily", Message: "Standup"},
+		},
+	}
+}
+
+func TestUnitsToWrite_OnlyChangedEntries(t *testing.T) {
+	cfg := twoTaskTwoReminderCfg()
+	cs := configChangeSet{changes: []configChange{
+		{name: "backup", kind: kindTask, action: actionUpdate},
+	}}
+
+	got := writtenUnitNames(t, cfg, cs, false)
+	want := []string{"orbit-task-backup.service", "orbit-task-backup.timer"}
+	if !slices.Equal(got, want) {
+		t.Errorf("unitsToWrite = %v, want only the changed task's pair %v", got, want)
+	}
+}
+
+func TestUnitsToWrite_ForceWritesEverything(t *testing.T) {
+	cfg := twoTaskTwoReminderCfg()
+	// An empty changeset with force still regenerates every entry.
+	got := writtenUnitNames(t, cfg, configChangeSet{}, true)
+	want := []string{
+		"orbit-reminder-review.service", "orbit-reminder-review.timer",
+		"orbit-reminder-standup.service", "orbit-reminder-standup.timer",
+		"orbit-task-backup.service", "orbit-task-backup.timer",
+		"orbit-task-deploy.service", "orbit-task-deploy.timer",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("unitsToWrite(force) = %v, want all 8 units %v", got, want)
+	}
+}
+
+func TestUnitsToWrite_NoChangesWritesNothing(t *testing.T) {
+	cfg := twoTaskTwoReminderCfg()
+	if got := writtenUnitNames(t, cfg, configChangeSet{}, false); len(got) != 0 {
+		t.Errorf("expected no units without changes or force, got %v", got)
+	}
+}
+
+func TestUnitsToWrite_RemovalsWriteNothing(t *testing.T) {
+	// A removed entry is gone from cfg, so it cannot be generated; a removal must
+	// not drag any other entry's units in either.
+	cfg := twoTaskTwoReminderCfg()
+	cs := configChangeSet{changes: []configChange{
+		{name: "gone", kind: kindTask, action: actionRemove},
+		{name: "alsogone", kind: kindReminder, action: actionRemove},
+	}}
+
+	if got := writtenUnitNames(t, cfg, cs, false); len(got) != 0 {
+		t.Errorf("expected no units for a removal-only changeset, got %v", got)
+	}
+}
+
+func TestUnitsToWrite_OrbitBinChangeWritesEverything(t *testing.T) {
+	// diffConfig marks every entry as updated when orbit_bin changes, so the
+	// narrowing must not defeat that path.
+	cfg := twoTaskTwoReminderCfg()
+	cfg.OrbitBin = "/new/orbit"
+	applied := &state.AppliedConfig{
+		OrbitBin: "/old/orbit",
+		Tasks: map[string]state.AppliedTaskConfig{
+			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: "weekly", OnMissed: "run_once"},
+		},
+		Reminders: map[string]state.AppliedReminderConfig{
+			"review":  {Schedule: "weekly", Message: "Do review"},
+			"standup": {Schedule: "daily", Message: "Standup"},
+		},
+	}
+
+	cs := diffConfig(cfg, applied)
+	got := writtenUnitNames(t, cfg, cs, false)
+	if len(got) != 8 {
+		t.Errorf("orbit_bin change should regenerate all 8 units, got %d: %v", len(got), got)
+	}
+	for _, n := range got {
+		if !strings.Contains(n, "backup") && !strings.Contains(n, "deploy") &&
+			!strings.Contains(n, "review") && !strings.Contains(n, "standup") {
+			t.Errorf("unexpected unit %q", n)
+		}
+	}
+}
+
+func TestUnitsToWrite_ScheduleGainedAndLost(t *testing.T) {
+	// Gaining a schedule adds a timer; losing one drops it (unitsToRemove deletes
+	// the stale timer, so unitsToWrite must simply not emit it).
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"gains": {Command: "echo", Schedule: "daily", OnMissed: "run_once"},
+			"loses": {Command: "echo"},
+		},
+	}
+	cs := configChangeSet{changes: []configChange{
+		{name: "gains", kind: kindTask, action: actionUpdate},
+		{name: "loses", kind: kindTask, action: actionUpdate},
+	}}
+
+	got := writtenUnitNames(t, cfg, cs, false)
+	want := []string{
+		"orbit-task-gains.service", "orbit-task-gains.timer",
+		"orbit-task-loses.service", // no timer: unscheduled
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("unitsToWrite = %v, want %v", got, want)
+	}
+}
+
+func TestUnitsToWrite_SameNameTaskAndReminder(t *testing.T) {
+	// A name may be both a task and a reminder, so the changed-entry lookup is
+	// keyed per kind. Changing only the task must not regenerate the reminder.
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"sync": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+		},
+		Reminders: map[string]config.ReminderConfig{
+			"sync": {Schedule: "weekly", Message: "Sync it"},
+		},
+	}
+	cs := configChangeSet{changes: []configChange{
+		{name: "sync", kind: kindTask, action: actionUpdate},
+	}}
+
+	got := writtenUnitNames(t, cfg, cs, false)
+	want := []string{"orbit-task-sync.service", "orbit-task-sync.timer"}
+	if !slices.Equal(got, want) {
+		t.Errorf("unitsToWrite = %v, want only the task's units %v", got, want)
+	}
+}
+
+func TestChangedEntries_PartitionsByKind(t *testing.T) {
+	cs := configChangeSet{changes: []configChange{
+		{name: "a", kind: kindTask, action: actionCreate},
+		{name: "b", kind: kindTask, action: actionUpdate},
+		{name: "c", kind: kindTask, action: actionRemove},
+		{name: "d", kind: kindReminder, action: actionCreate},
+		{name: "e", kind: kindReminder, action: actionRemove},
+		// same name, both kinds: each side tracked independently
+		{name: "shared", kind: kindTask, action: actionUpdate},
+	}}
+
+	tasks, reminders := changedEntries(cs)
+
+	for _, name := range []string{"a", "b", "shared"} {
+		if !tasks[name] {
+			t.Errorf("expected task %q to be marked changed", name)
+		}
+	}
+	if tasks["c"] {
+		t.Error("removed task should not be marked for regeneration")
+	}
+	if !reminders["d"] {
+		t.Error("expected reminder d to be marked changed")
+	}
+	if reminders["e"] {
+		t.Error("removed reminder should not be marked for regeneration")
+	}
+	if reminders["shared"] {
+		t.Error("a changed task must not mark a same-named reminder")
+	}
+	if len(tasks) != 3 || len(reminders) != 1 {
+		t.Errorf("got %d tasks / %d reminders, want 3 / 1", len(tasks), len(reminders))
+	}
+}
+
 type fakeStateReader struct {
 	tasks     map[string]state.TaskState
 	reminders map[string]state.ReminderState

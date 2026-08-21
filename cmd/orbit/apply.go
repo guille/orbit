@@ -114,31 +114,20 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 
 	manager := systemd.NewManager()
 
-	var allUnits []systemd.Unit
-	for name, t := range cfg.Tasks {
-		units, err := systemd.GenerateTaskUnits(name, t.Schedule, t.OnMissed, cfg.OrbitBin)
-		if err != nil {
-			return fmt.Errorf("generating units for task %s: %w", name, err)
-		}
-		allUnits = append(allUnits, units...)
-	}
-	for name, r := range cfg.Reminders {
-		units, err := systemd.GenerateReminderUnits(name, r.Schedule, cfg.OrbitBin)
-		if err != nil {
-			return fmt.Errorf("generating units for reminder %s: %w", name, err)
-		}
-		allUnits = append(allUnits, units...)
+	units, err := unitsToWrite(cfg, cs, force)
+	if err != nil {
+		return err
 	}
 
-	if len(allUnits) > 0 {
-		tmpDir, cleanup, err := manager.WriteUnits(allUnits)
+	if len(units) > 0 {
+		tmpDir, cleanup, err := manager.WriteUnits(units)
 		if err != nil {
 			return fmt.Errorf("writing units: %w", err)
 		}
 		defer cleanup()
 
 		var unitPaths []string
-		for _, u := range allUnits {
+		for _, u := range units {
 			unitPaths = append(unitPaths, filepath.Join(tmpDir, u.Name))
 		}
 
@@ -148,7 +137,7 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 			return fmt.Errorf("unit verification failed")
 		}
 
-		if err := manager.InstallUnits(allUnits, tmpDir); err != nil {
+		if err := manager.InstallUnits(units, tmpDir); err != nil {
 			return fmt.Errorf("installing units: %w", err)
 		}
 	}
@@ -283,6 +272,57 @@ func reminderChanged(old state.AppliedReminderConfig, new config.ReminderConfig)
 		old.Message != new.Message ||
 		old.Snooze != new.Snooze ||
 		old.Check != new.Check
+}
+
+// changedEntries returns the task and reminder names the changeset creates or
+// updates, i.e. those whose unit files need regenerating.
+func changedEntries(cs configChangeSet) (tasks, reminders map[string]bool) {
+	tasks = make(map[string]bool)
+	reminders = make(map[string]bool)
+	for _, c := range cs.changes {
+		if c.action == actionRemove {
+			continue
+		}
+		switch c.kind {
+		case kindTask:
+			tasks[c.name] = true
+		case kindReminder:
+			reminders[c.name] = true
+		}
+	}
+	return tasks, reminders
+}
+
+// unitsToWrite generates the units to install. Only entries the changeset
+// created or updated are regenerated: reinstalling a byte-identical unit still
+// costs a systemd-analyze verify and an enable round trip, both of which grow
+// with the size of the config. force regenerates everything, which is what
+// repairs unit files that drifted on disk without a config change.
+func unitsToWrite(cfg *config.Config, cs configChangeSet, force bool) ([]systemd.Unit, error) {
+	changedTasks, changedReminders := changedEntries(cs)
+
+	var units []systemd.Unit
+	for name, t := range cfg.Tasks {
+		if !force && !changedTasks[name] {
+			continue
+		}
+		u, err := systemd.GenerateTaskUnits(name, t.Schedule, t.OnMissed, cfg.OrbitBin)
+		if err != nil {
+			return nil, fmt.Errorf("generating units for task %s: %w", name, err)
+		}
+		units = append(units, u...)
+	}
+	for name, r := range cfg.Reminders {
+		if !force && !changedReminders[name] {
+			continue
+		}
+		u, err := systemd.GenerateReminderUnits(name, r.Schedule, cfg.OrbitBin)
+		if err != nil {
+			return nil, fmt.Errorf("generating units for reminder %s: %w", name, err)
+		}
+		units = append(units, u...)
+	}
+	return units, nil
 }
 
 // unitsToRemove returns the units to uninstall for a changeset, along with the

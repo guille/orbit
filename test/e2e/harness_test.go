@@ -243,11 +243,21 @@ func (e *orbitEnv) writeConfig(t *testing.T, content string) {
 }
 
 // applyConfig writes body as orbit.toml (with orbit_bin wired to the test
-// binary so generated units pass systemd-analyze) and runs `orbit apply`.
-func (e *orbitEnv) applyConfig(t *testing.T, body string) result {
+// binary so generated units pass systemd-analyze) and runs `orbit apply`,
+// passing any extra flags through.
+func (e *orbitEnv) applyConfig(t *testing.T, body string, extraArgs ...string) result {
 	t.Helper()
 	e.writeConfig(t, "orbit_bin = \""+orbitBin+"\"\n\n"+body)
-	return e.run(t, "", "apply")
+	return e.run(t, "", append([]string{"apply"}, extraArgs...)...)
+}
+
+// resetCalls discards recorded systemctl invocations, so a later assertion sees
+// only the calls made by the next command.
+func (e *orbitEnv) resetCalls(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(e.fakeLog); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
 }
 
 // unitDir is where orbit installs generated systemd units.

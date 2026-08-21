@@ -102,8 +102,10 @@ Two places, both in `internal/systemd/install.go`.
 `InstallUnits` moves the staged files into place and then enables the timers
 among them. The `enable` reloads, which covers both newly created units and
 edits to existing ones. An explicit reload is needed only when the set contains
-no timers at all — a configuration of purely manual tasks, which generates
-services and enables nothing.
+no timers at all — manual tasks, which generate a service and enable nothing.
+Note that `apply` stages only the entries whose configuration changed, so this
+case arises whenever those entries happen to be manual, not merely when every
+task in the configuration is.
 
 `RemoveUnits` stops the units, disables those that are timers, and unlinks the
 files. The `disable` reloads, which sweeps the stopped units from memory. An
