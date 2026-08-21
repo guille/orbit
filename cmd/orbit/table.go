@@ -29,8 +29,8 @@ func (t *table) String() string {
 	}
 	for _, r := range t.rows {
 		for i, c := range r {
-			if i < len(widths) && visibleLen(c) > widths[i] {
-				widths[i] = visibleLen(c)
+			if i < len(widths) {
+				widths[i] = max(widths[i], visibleLen(c))
 			}
 		}
 	}
@@ -41,17 +41,16 @@ func (t *table) String() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(joinCells(t.headers, widths) + "\n")
-	b.WriteString(joinCells(rule, widths) + "\n")
+	writeCells(&b, t.headers, widths)
+	writeCells(&b, rule, widths)
 	for _, r := range t.rows {
-		b.WriteString(joinCells(r, widths) + "\n")
+		writeCells(&b, r, widths)
 	}
 	return b.String()
 }
 
-// joinCells pads every cell but the last to its column width.
-func joinCells(cells []string, widths []int) string {
-	var b strings.Builder
+// writeCells writes one row, padding every cell but the last to its column width.
+func writeCells(b *strings.Builder, cells []string, widths []int) {
 	for i, c := range cells {
 		if i > 0 {
 			b.WriteString(columnGap)
@@ -60,7 +59,7 @@ func joinCells(cells []string, widths []int) string {
 			b.WriteString(c)
 			break
 		}
-		b.WriteString(padRight(c, widths[i]))
+		writePadded(b, c, widths[i])
 	}
-	return b.String()
+	b.WriteByte('\n')
 }

@@ -1,17 +1,19 @@
 package main
 
 import (
-	"fmt"
 	"os"
-	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
-// ANSI color codes. Disabled when NO_COLOR env is set or stdout is not a terminal.
-var (
-	colorEnabled = os.Getenv("NO_COLOR") == "" && isTerminal()
-	ansiRe       = regexp.MustCompile(`\033\[[0-9;]*m`)
+const (
+	escape = '\033'
+	// spaces is sliced for padding; long enough to cover a column in one write.
+	spaces = "                                                                "
 )
+
+// ANSI color codes. Disabled when NO_COLOR env is set or stdout is not a terminal.
+var colorEnabled = os.Getenv("NO_COLOR") == "" && isTerminal()
 
 func isTerminal() bool {
 	fi, err := os.Stdout.Stat()
@@ -65,14 +67,49 @@ func bold(s string) string {
 
 // visibleLen returns the rendered width of s, ignoring ANSI escape sequences.
 func visibleLen(s string) int {
-	return utf8.RuneCountInString(ansiRe.ReplaceAllString(s, ""))
+	n := 0
+	for i := 0; i < len(s); {
+		if s[i] == escape {
+			if end := sgrEnd(s, i); end > i {
+				i = end
+				continue
+			}
+		}
+		if s[i] < utf8.RuneSelf {
+			i++
+		} else {
+			_, size := utf8.DecodeRuneInString(s[i:])
+			i += size
+		}
+		n++
+	}
+	return n
 }
 
-// padRight pads a (possibly ANSI-colored) string to the given visible width.
-func padRight(s string, width int) string {
-	visible := visibleLen(s)
-	if visible >= width {
-		return s
+// sgrEnd returns the index just past the SGR sequence (ESC [ digits/semicolons m)
+// starting at i, or i if s[i:] does not open one. Anything else is left visible,
+// matching how the terminal would not consume it as a color change.
+func sgrEnd(s string, i int) int {
+	if i+1 >= len(s) || s[i+1] != '[' {
+		return i
 	}
-	return fmt.Sprintf("%s%*s", s, width-visible, "")
+	for j := i + 2; j < len(s); j++ {
+		switch c := s[j]; {
+		case c == 'm':
+			return j + 1
+		case c >= '0' && c <= '9', c == ';':
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// writePadded writes a (possibly ANSI-colored) string padded to the given
+// visible width.
+func writePadded(b *strings.Builder, s string, width int) {
+	b.WriteString(s)
+	for pad := width - visibleLen(s); pad > 0; pad -= len(spaces) {
+		b.WriteString(spaces[:min(pad, len(spaces))])
+	}
 }
