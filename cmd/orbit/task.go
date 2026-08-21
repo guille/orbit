@@ -108,6 +108,7 @@ func taskListCmd() *cobra.Command {
 			names := applied.TaskNames()
 			sortNatural(names)
 
+			primeNextRuns(applied.TaskSchedules())
 			failed, _ := systemd.NewManager().FailedServices(names)
 
 			tbl := newTable(colName, colSchedule, colLastRun, colNextRun, colStatus)

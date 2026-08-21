@@ -27,6 +27,8 @@ func nextCmd() *cobra.Command {
 				return nil
 			}
 
+			primeNextRuns(applied.Schedules())
+
 			taskNames := applied.TaskNames()
 			sortNatural(taskNames)
 
@@ -61,14 +63,39 @@ type nextRunResult struct {
 // nextRunCache memoizes schedule resolution within a single CLI invocation.
 var nextRunCache = map[string]nextRunResult{}
 
+// primeNextRuns resolves every not-yet-cached schedule in one systemd-analyze
+// invocation. Listings should call this up front so they cost one subprocess
+// rather than one per distinct schedule.
+func primeNextRuns(schedules []string) {
+	seen := make(map[string]bool, len(schedules))
+	var pending []string
+	for _, s := range schedules {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		if _, cached := nextRunCache[s]; !cached {
+			pending = append(pending, s)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+
+	elapses := systemd.NewManager().NextElapses(pending)
+	for _, s := range pending {
+		t, ok := elapses[s]
+		nextRunCache[s] = nextRunResult{t: t, ok: ok}
+	}
+}
+
 // nextRun resolves a schedule's next trigger time, cached per invocation.
 func nextRun(schedule string) (time.Time, bool) {
-	if r, hit := nextRunCache[schedule]; hit {
-		return r.t, r.ok
+	r, hit := nextRunCache[schedule]
+	if !hit {
+		primeNextRuns([]string{schedule})
+		r = nextRunCache[schedule]
 	}
-	t, err := systemd.NewManager().NextElapse(schedule)
-	r := nextRunResult{t: t, ok: err == nil}
-	nextRunCache[schedule] = r
 	return r.t, r.ok
 }
 

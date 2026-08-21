@@ -111,6 +111,8 @@ func printHealthyPulse(stateStore *state.State, applied *state.AppliedConfig, ac
 // nextUpcoming returns the soonest-firing active task or reminder and a
 // human-friendly time until it fires.
 func nextUpcoming(stateStore *state.State, applied *state.AppliedConfig) (name, when string, ok bool) {
+	primeNextRuns(applied.Schedules())
+
 	now := time.Now()
 	var best time.Time
 

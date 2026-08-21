@@ -231,19 +231,49 @@ func (m *Manager) VerifyUnits(paths ...string) (string, error) {
 	return string(out), err
 }
 
-// NextElapse returns the next trigger time for an OnCalendar expression, via
-// `systemd-analyze calendar`.
-func (m *Manager) NextElapse(schedule string) (time.Time, error) {
-	out, err := exec.Command("systemd-analyze", "calendar", schedule, "--iterations=1").CombinedOutput()
-	if err != nil {
-		return time.Time{}, fmt.Errorf("resolving schedule %q: %w", schedule, err)
+// NextElapses returns the next trigger time of each given OnCalendar
+// expression, keyed by expression, resolved in a single `systemd-analyze
+// calendar` invocation. Expressions systemd cannot resolve are omitted.
+func (m *Manager) NextElapses(schedules []string) map[string]time.Time {
+	if len(schedules) == 0 {
+		return nil
 	}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "Next elapse:"); ok {
-			return parseCalendarTime(strings.TrimSpace(after))
+
+	args := append([]string{"calendar", "--iterations=1"}, schedules...)
+	// A rejected expression is reported on stderr and simply yields no block on
+	// stdout, so a non-zero exit says nothing about the ones that did resolve.
+	output, _ := exec.Command("systemd-analyze", args...).Output()
+
+	// systemd-analyze prints one property block per expression, separated by a
+	// blank line. "Original form" echoes the expression as given, and is
+	// omitted when the expression is already in normalized form.
+	elapses := make(map[string]time.Time, len(schedules))
+	for block := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n\n") {
+		var schedule string
+		var elapse time.Time
+		for line := range strings.SplitSeq(block, "\n") {
+			key, value, ok := strings.Cut(line, ":")
+			if !ok {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			switch strings.TrimSpace(key) {
+			case "Original form":
+				schedule = value
+			case "Normalized form":
+				if schedule == "" {
+					schedule = value
+				}
+			case "Next elapse":
+				elapse, _ = parseCalendarTime(value)
+			}
+		}
+		if schedule != "" && !elapse.IsZero() {
+			elapses[schedule] = elapse
 		}
 	}
-	return time.Time{}, fmt.Errorf("no next elapse for schedule %q", schedule)
+
+	return elapses
 }
 
 // parseCalendarTime parses a systemd-analyze calendar timestamp

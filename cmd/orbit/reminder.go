@@ -85,6 +85,12 @@ func printPendingReminders(applied *state.AppliedConfig, stateStore *state.State
 
 // printReminderTable renders the shared reminder listing for the given names.
 func printReminderTable(applied *state.AppliedConfig, stateStore *state.State, names []string) {
+	schedules := make([]string, 0, len(names))
+	for _, name := range names {
+		schedules = append(schedules, applied.Reminders[name].Schedule)
+	}
+	primeNextRuns(schedules)
+
 	tbl := newTable(colName, colSchedule, colLastNotified, colNextRun, colStatus)
 	for _, name := range names {
 		reminderConfig := applied.Reminders[name]

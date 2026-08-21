@@ -116,6 +116,32 @@ func (a *AppliedConfig) ReminderNames() []string {
 	return names
 }
 
+// TaskSchedules returns the schedule of every task, unsorted and possibly
+// with duplicates. Unscheduled (manual) tasks contribute an empty string.
+func (a *AppliedConfig) TaskSchedules() []string {
+	if a == nil {
+		return nil
+	}
+	schedules := make([]string, 0, len(a.Tasks))
+	for _, t := range a.Tasks {
+		schedules = append(schedules, t.Schedule)
+	}
+	return schedules
+}
+
+// Schedules returns the schedule of every task and reminder, unsorted and
+// possibly with duplicates.
+func (a *AppliedConfig) Schedules() []string {
+	if a == nil {
+		return nil
+	}
+	schedules := a.TaskSchedules()
+	for _, r := range a.Reminders {
+		schedules = append(schedules, r.Schedule)
+	}
+	return schedules
+}
+
 // AppliedTaskConfig is the applied (saved) version of a task's configuration.
 type AppliedTaskConfig struct {
 	Command  string                `json:"command"`

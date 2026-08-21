@@ -35,6 +35,7 @@ func listCmd() *cobra.Command {
 
 			var rows []row
 
+			primeNextRuns(applied.Schedules())
 			failed, _ := systemd.NewManager().FailedServices(applied.TaskNames())
 
 			for name, taskConfig := range applied.Tasks {
