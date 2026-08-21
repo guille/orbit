@@ -43,13 +43,14 @@ message = "Standup"
 		}
 	}
 
-	// systemctl contract: daemon-reload, then enable --now the timers.
+	// systemctl contract: enable --now the timers, and nothing else. enable
+	// reloads the manager itself. See docs/daemon-reloads.md.
 	calls := e.systemctlCalls(t)
-	if !hasCall(calls, "daemon-reload") {
-		t.Errorf("expected a daemon-reload call, got:\n%s", strings.Join(calls, "\n"))
-	}
 	if !hasCall(calls, "enable --now") {
 		t.Errorf("expected an enable --now call, got:\n%s", strings.Join(calls, "\n"))
+	}
+	if hasCall(calls, "daemon-reload") {
+		t.Errorf("enable reloads already; expected no explicit daemon-reload, got:\n%s", strings.Join(calls, "\n"))
 	}
 }
 

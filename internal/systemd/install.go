@@ -96,9 +96,9 @@ func (m *Manager) WriteUnits(units []Unit) (tmpDir string, cleanup func(), err e
 }
 
 // InstallUnits moves unit files from a staging directory (e.g. returned by
-// WriteUnits) into the systemd user unit directory, performs a daemon-reload,
-// and enables/starts any timer units. The staging directory is NOT removed
-// — the caller's cleanup callback handles that.
+// WriteUnits) into the systemd user unit directory, then enables and starts any
+// timer units, which is also what makes systemd pick the files up. The staging
+// directory is NOT removed — the caller's cleanup callback handles that.
 func (m *Manager) InstallUnits(units []Unit, fromDir string) error {
 	systemdDir := m.UnitDir()
 	if err := os.MkdirAll(systemdDir, 0755); err != nil {
@@ -113,22 +113,25 @@ func (m *Manager) InstallUnits(units []Unit, fromDir string) error {
 		}
 	}
 
-	if err := m.daemonReload(); err != nil {
-		return err
-	}
-
 	var timers []string
 	for _, unit := range units {
 		if strings.HasSuffix(unit.Name, ".timer") {
 			timers = append(timers, unit.Name)
 		}
 	}
-	if len(timers) > 0 {
-		args := append([]string{"enable", "--now"}, timers...)
-		output, err := m.systemctlOutput(args[0], args[1:]...)
-		if err != nil {
-			return fmt.Errorf("enabling timers: %w (output: %s)", err, output)
-		}
+
+	// `systemctl enable` reloads the manager itself, and does so after the files
+	// are already in place, so it picks up both new units and edits to existing
+	// ones. With no timers there is no enable, so we reload ourselves.
+	// See docs/daemon-reloads.md.
+	if len(timers) == 0 {
+		return m.daemonReload()
+	}
+
+	args := append([]string{"enable", "--now"}, timers...)
+	output, err := m.systemctlOutput(args[0], args[1:]...)
+	if err != nil {
+		return fmt.Errorf("enabling timers: %w (output: %s)", err, output)
 	}
 
 	return nil
@@ -162,5 +165,12 @@ func (m *Manager) RemoveUnits(units []Unit) error {
 		}
 	}
 
+	// `systemctl disable` reloads the manager itself, which also sweeps the
+	// stopped units from memory; reloading again here would repeat that work.
+	// With no timers there is no disable, so we do it ourselves.
+	// See docs/daemon-reloads.md.
+	if len(timerNames) > 0 {
+		return nil
+	}
 	return m.daemonReload()
 }

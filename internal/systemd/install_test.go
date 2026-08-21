@@ -3,9 +3,20 @@ package systemd
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// reloaded reports whether any recorded systemctl call was a daemon-reload.
+func reloaded(calls [][]string) bool {
+	for _, c := range calls {
+		if slices.Contains(c, "daemon-reload") {
+			return true
+		}
+	}
+	return false
+}
 
 func TestUnitDir(t *testing.T) {
 	home := os.Getenv("HOME")
@@ -122,18 +133,19 @@ func TestInstallUnits_WithMock(t *testing.T) {
 			t.Error("service file still in staging dir")
 		}
 
-		// daemon-reload + enable --now
-		if len(mock.Calls) != 2 {
-			t.Fatalf("expected 2 systemctl calls, got %d: %v", len(mock.Calls), mock.Calls)
+		// enable --now only. No daemon-reload: enable already reloads, and does
+		// it after the files are in place. See docs/daemon-reloads.md.
+		if len(mock.Calls) != 1 {
+			t.Fatalf("expected 1 systemctl call, got %d: %v", len(mock.Calls), mock.Calls)
 		}
-		if mock.Calls[0][1] != "daemon-reload" {
-			t.Errorf("expected daemon-reload, got %v", mock.Calls[0])
+		if mock.Calls[0][1] != "enable" {
+			t.Errorf("expected enable, got %v", mock.Calls[0])
 		}
-		if mock.Calls[1][1] != "enable" {
-			t.Errorf("expected enable, got %v", mock.Calls[1])
+		if !strings.HasSuffix(mock.Calls[0][3], "orbit-task-test.timer") {
+			t.Errorf("expected timer in enable args, got %v", mock.Calls[0])
 		}
-		if !strings.HasSuffix(mock.Calls[1][3], "orbit-task-test.timer") {
-			t.Errorf("expected timer in enable args, got %v", mock.Calls[1])
+		if reloaded(mock.Calls) {
+			t.Errorf("enable reloads already; expected no explicit daemon-reload, got %v", mock.Calls)
 		}
 	})
 
@@ -188,9 +200,19 @@ func TestRemoveUnits_WithMock(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have: batch stop (both units), batch disable (timer), daemon-reload = 3
-	if len(mock.Calls) != 3 {
-		t.Fatalf("expected 3 systemctl calls, got %d: %v", len(mock.Calls), mock.Calls)
+	// Batch stop (both units), then batch disable (the timer). No daemon-reload:
+	// disable already reloads. See docs/daemon-reloads.md.
+	if len(mock.Calls) != 2 {
+		t.Fatalf("expected 2 systemctl calls, got %d: %v", len(mock.Calls), mock.Calls)
+	}
+	if mock.Calls[0][1] != "stop" {
+		t.Errorf("expected stop first, got %v", mock.Calls[0])
+	}
+	if mock.Calls[1][1] != "disable" {
+		t.Errorf("expected disable second, got %v", mock.Calls[1])
+	}
+	if reloaded(mock.Calls) {
+		t.Errorf("disable reloads already; expected no explicit daemon-reload, got %v", mock.Calls)
 	}
 
 	// Verify files deleted
@@ -199,5 +221,27 @@ func TestRemoveUnits_WithMock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(systemdDir, "orbit-task-old.timer")); !os.IsNotExist(err) {
 		t.Error("expected timer file to be deleted")
+	}
+}
+
+// With no timer there is no disable, so nothing reloads on our behalf.
+func TestRemoveUnits_NoTimersReloads(t *testing.T) {
+	tmpDir := t.TempDir()
+	mock := &MockSystemctl{}
+
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	m := &Manager{ctl: mock}
+
+	systemdDir := filepath.Join(tmpDir, "systemd", "user")
+	mustMkdirAll(t, systemdDir)
+	mustWrite(t, filepath.Join(systemdDir, "orbit-task-old.service"), "x")
+
+	if err := m.RemoveUnits([]Unit{{Name: "orbit-task-old.service"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reloaded(mock.Calls) {
+		t.Errorf("expected an explicit daemon-reload, got %v", mock.Calls)
 	}
 }
