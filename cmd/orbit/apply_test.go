@@ -696,15 +696,17 @@ func (f fakeStateReader) GetReminderState(name string) state.ReminderState {
 	return f.reminders[name]
 }
 
-func TestDisabledTimerNames(t *testing.T) {
+// disabledCfg has one disabled and one enabled entry of each kind, all
+// scheduled, so every entry has a timer that could need disabling.
+func disabledCfg() (*config.Config, fakeStateReader) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"enabled-task":  {},
-			"disabled-task": {},
+			"enabled-task":  {Schedule: "daily"},
+			"disabled-task": {Schedule: "daily"},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"enabled-rem":  {},
-			"disabled-rem": {},
+			"enabled-rem":  {Schedule: "daily"},
+			"disabled-rem": {Schedule: "daily"},
 		},
 	}
 	sr := fakeStateReader{
@@ -715,20 +717,96 @@ func TestDisabledTimerNames(t *testing.T) {
 			"disabled-rem": {Disabled: true},
 		},
 	}
+	return cfg, sr
+}
 
-	got := disabledTimerNames(cfg, sr)
-	want := []string{"orbit-reminder-disabled-rem.timer", "orbit-task-disabled-task.timer"}
+func TestTimersToDisable_OnlyChangedEntries(t *testing.T) {
+	cfg, sr := disabledCfg()
+
+	// The disabled task changed, so installing re-enabled its timer.
+	cs := configChangeSet{changes: []configChange{
+		{name: "disabled-task", kind: kindTask, action: actionUpdate},
+	}}
+	got := timersToDisable(cfg, sr, cs, false)
+	want := []string{"orbit-task-disabled-task.timer"}
 	if !slices.Equal(got, want) {
-		t.Errorf("disabledTimerNames = %v, want %v", got, want)
+		t.Errorf("timersToDisable = %v, want %v", got, want)
 	}
 }
 
-func TestDisabledTimerNames_NoneDisabled(t *testing.T) {
+func TestTimersToDisable_UntouchedDisabledEntrySkipped(t *testing.T) {
+	cfg, sr := disabledCfg()
+
+	// Only an enabled entry changed: nothing was re-enabled, so nothing needs
+	// disabling. Disabling here would cost a daemon-reload for nothing.
+	cs := configChangeSet{changes: []configChange{
+		{name: "enabled-task", kind: kindTask, action: actionUpdate},
+	}}
+	if got := timersToDisable(cfg, sr, cs, false); len(got) != 0 {
+		t.Errorf("expected no timers to disable, got %v", got)
+	}
+}
+
+func TestTimersToDisable_ForceCoversAllDisabled(t *testing.T) {
+	cfg, sr := disabledCfg()
+
+	// force reinstalls (and so re-enables) everything, including entries with no
+	// config change, so every disabled timer must be put back.
+	got := timersToDisable(cfg, sr, configChangeSet{}, true)
+	want := []string{"orbit-reminder-disabled-rem.timer", "orbit-task-disabled-task.timer"}
+	if !slices.Equal(got, want) {
+		t.Errorf("timersToDisable(force) = %v, want %v", got, want)
+	}
+}
+
+func TestTimersToDisable_SkipsManualTask(t *testing.T) {
+	// An unscheduled task never gets a timer generated, so naming one here would
+	// hand systemctl a unit that does not exist.
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"manual":    {},
+			"scheduled": {Schedule: "daily"},
+		},
+	}
+	sr := fakeStateReader{tasks: map[string]state.TaskState{
+		"manual":    {Disabled: true},
+		"scheduled": {Disabled: true},
+	}}
+
+	got := timersToDisable(cfg, sr, configChangeSet{}, true)
+	want := []string{"orbit-task-scheduled.timer"}
+	if !slices.Equal(got, want) {
+		t.Errorf("timersToDisable = %v, want %v (no timer for the manual task)", got, want)
+	}
+
+	// It is still a disabled entry for reporting purposes.
+	if n := disabledEntryCount(cfg, sr); n != 2 {
+		t.Errorf("disabledEntryCount = %d, want 2 (manual tasks count too)", n)
+	}
+}
+
+func TestTimersToDisable_NoneDisabled(t *testing.T) {
 	cfg := &config.Config{
 		Tasks:     map[string]config.TaskConfig{"a": {}},
 		Reminders: map[string]config.ReminderConfig{"b": {}},
 	}
-	if got := disabledTimerNames(cfg, fakeStateReader{}); len(got) != 0 {
+	cs := configChangeSet{changes: []configChange{
+		{name: "a", kind: kindTask, action: actionUpdate},
+		{name: "b", kind: kindReminder, action: actionUpdate},
+	}}
+	if got := timersToDisable(cfg, fakeStateReader{}, cs, false); len(got) != 0 {
 		t.Errorf("expected no disabled timers, got %v", got)
+	}
+}
+
+func TestDisabledEntryCount(t *testing.T) {
+	cfg, sr := disabledCfg()
+
+	// The summary counts every disabled entry, regardless of what apply touched.
+	if got := disabledEntryCount(cfg, sr); got != 2 {
+		t.Errorf("disabledEntryCount = %d, want 2", got)
+	}
+	if got := disabledEntryCount(cfg, fakeStateReader{}); got != 0 {
+		t.Errorf("disabledEntryCount with none disabled = %d, want 0", got)
 	}
 }

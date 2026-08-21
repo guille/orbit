@@ -59,7 +59,7 @@ func doctorCmd() *cobra.Command {
 			allPassed = checkSentinelFile(stateStore) && allPassed
 			allPassed = checkServiceUnits(applied) && allPassed
 			allPassed = checkTimerStates(applied, stateStore) && allPassed
-			checkDisabledUnits(applied, stateStore)
+			allPassed = checkDisabledUnits(applied, stateStore) && allPassed
 
 			if allPassed {
 				fmt.Printf("\n%s\n", green("All checks passed!"))
@@ -485,25 +485,39 @@ func collectNames(lists ...[]string) []string {
 	return names
 }
 
-// checkDisabledUnits reports how many units are currently disabled (always passes).
-func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State) {
+// checkDisabledUnits reports how many units are currently disabled, and verifies
+// that their timers really are inactive. apply only disables timers it just
+// installed, so an entry disabled in state but still running in systemd (enabled
+// out of band, say) would otherwise go unreported: checkTimerStates skips
+// disabled entries by design.
+func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State) bool {
 	if applied == nil {
-		return
+		return true
 	}
 	var disabledTasks, disabledReminders int
-	for name := range applied.Tasks {
-		if stateStore.GetTaskState(name).Disabled {
-			disabledTasks++
+	var timers []string
+	for name, cfg := range applied.Tasks {
+		if !stateStore.GetTaskState(name).Disabled {
+			continue
+		}
+		disabledTasks++
+		// A manual task has no timer to check.
+		if cfg.Schedule != "" {
+			timers = append(timers, systemd.TaskTimerName(name))
 		}
 	}
 	for name := range applied.Reminders {
-		if stateStore.GetReminderState(name).Disabled {
-			disabledReminders++
+		if !stateStore.GetReminderState(name).Disabled {
+			continue
 		}
+		disabledReminders++
+		timers = append(timers, systemd.ReminderTimerName(name))
 	}
 	if disabledTasks == 0 && disabledReminders == 0 {
-		return
+		return true
 	}
+	sortNatural(timers)
+
 	nextCheck("Checking disabled units")
 	parts := []string{}
 	if disabledTasks > 0 {
@@ -512,6 +526,30 @@ func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State) {
 	if disabledReminders > 0 {
 		parts = append(parts, fmt.Sprintf("%d reminder%s", disabledReminders, plural(disabledReminders)))
 	}
+
+	var stillRunning []string
+	if len(timers) > 0 {
+		statuses, err := systemd.NewManager().UnitStatuses(timers)
+		if err != nil {
+			fmt.Println(red("FAIL"))
+			fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), err)
+			return false
+		}
+		for _, name := range timers {
+			if st := statuses[name]; st.Active || st.Enabled {
+				stillRunning = append(stillRunning, name)
+			}
+		}
+	}
+
 	fmt.Println()
 	fmt.Printf("   %s: %s disabled\n", blue("INFO"), strings.Join(parts, ", "))
+	if len(stillRunning) == 0 {
+		return true
+	}
+	for _, name := range stillRunning {
+		fmt.Printf("   %s: %s is disabled in orbit but still active or enabled in systemd\n", red("FAIL"), name)
+	}
+	fmt.Println("   Run 'orbit apply --force' to reassert it, or 'orbit enable <name>' if it should be running.")
+	return false
 }

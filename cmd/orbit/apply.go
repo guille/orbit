@@ -162,16 +162,16 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 		return fmt.Errorf("saving applied config: %w", err)
 	}
 
-	// Respect disabled state: stop timers for disabled entries
-	disabledTimers := disabledTimerNames(cfg, stateStore)
-	if len(disabledTimers) > 0 {
-		manager.StopAndDisableTimers(disabledTimers)
+	// Installing a timer enables it, so disabled entries that were just written
+	// have to be put back.
+	if timers := timersToDisable(cfg, stateStore, cs, force); len(timers) > 0 {
+		manager.StopAndDisableTimers(timers)
 	}
 
 	fmt.Printf("Done. %d created, %d updated, %d removed, %d unchanged.\n",
 		cs.nCreate, cs.nUpdate, cs.nRemove, cs.nUnchanged)
-	if len(disabledTimers) > 0 {
-		fmt.Printf("%s\n", dim(fmt.Sprintf("(%d entries disabled)", len(disabledTimers))))
+	if n := disabledEntryCount(cfg, stateStore); n > 0 {
+		fmt.Printf("%s\n", dim(fmt.Sprintf("(%d entries disabled)", n)))
 	}
 	return nil
 }
@@ -359,22 +359,48 @@ type stateReader interface {
 	GetReminderState(name string) state.ReminderState
 }
 
-// disabledTimerNames returns the timer unit names for entries marked disabled,
-// sorted for stable ordering.
-func disabledTimerNames(cfg *config.Config, sr stateReader) []string {
+// timersToDisable returns the timers apply has to disable after installing:
+// those of disabled entries whose units it just wrote, since installing a timer
+// also enables it. Entries apply left alone are already disabled, and disabling
+// them again would cost a daemon-reload for nothing. Sorted for stable ordering.
+func timersToDisable(cfg *config.Config, sr stateReader, cs configChangeSet, force bool) []string {
+	changedTasks, changedReminders := changedEntries(cs)
+
 	var names []string
-	for name := range cfg.Tasks {
-		if sr.GetTaskState(name).Disabled {
+	for name, t := range cfg.Tasks {
+		// A manual task has no timer to disable.
+		if t.Schedule == "" {
+			continue
+		}
+		if (force || changedTasks[name]) && sr.GetTaskState(name).Disabled {
 			names = append(names, systemd.TaskTimerName(name))
 		}
 	}
 	for name := range cfg.Reminders {
-		if sr.GetReminderState(name).Disabled {
+		if (force || changedReminders[name]) && sr.GetReminderState(name).Disabled {
 			names = append(names, systemd.ReminderTimerName(name))
 		}
 	}
 	sortNatural(names)
 	return names
+}
+
+// disabledEntryCount counts the entries marked disabled, for the apply summary.
+// Unlike timersToDisable this covers the whole config, including entries apply
+// did not touch and manual tasks that have no timer at all.
+func disabledEntryCount(cfg *config.Config, sr stateReader) int {
+	n := 0
+	for name := range cfg.Tasks {
+		if sr.GetTaskState(name).Disabled {
+			n++
+		}
+	}
+	for name := range cfg.Reminders {
+		if sr.GetReminderState(name).Disabled {
+			n++
+		}
+	}
+	return n
 }
 
 // printConfigChanges prints the config-level change set with colors.

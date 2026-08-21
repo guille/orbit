@@ -299,6 +299,8 @@ func hasCall(calls []string, sub string) bool {
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
+func replaceOnce(s, old, new string) string { return strings.Replace(s, old, new, 1) }
+
 func joinLines(lines []string) string { return strings.Join(lines, "\n") }
 
 // requireSystemdAnalyze skips the test when systemd-analyze is unavailable,

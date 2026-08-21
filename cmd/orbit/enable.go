@@ -149,12 +149,12 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 				stateStore.SetTaskState(name, ts)
 				changed++
 
-				timerName := systemd.TaskTimerName(name)
-				if disable {
-					toStop = append(toStop, timerName)
-				} else {
-					cfg := applied.Tasks[name]
-					if cfg.Schedule != "" {
+				// A manual task has no timer to stop or start.
+				if applied.Tasks[name].Schedule != "" {
+					timerName := systemd.TaskTimerName(name)
+					if disable {
+						toStop = append(toStop, timerName)
+					} else {
 						toStart = append(toStart, timerName)
 					}
 				}
