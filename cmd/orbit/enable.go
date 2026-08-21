@@ -139,6 +139,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 	manager := systemd.NewManager()
 	var changed int
 	var toStop, toStart []string
+	var toUnsnooze []string // reminder names, not unit names
 
 	for _, name := range names {
 		if applied.HasTask(name) {
@@ -165,7 +166,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 				rs.Disabled = disable
 				if disable && reminder.IsActionable(rs) {
 					if reminder.IsSnoozed(rs) {
-						removeSnoozeTimer(manager, name)
+						toUnsnooze = append(toUnsnooze, name)
 					}
 					rs = reminder.Dismiss(rs)
 				}
@@ -182,6 +183,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 		}
 	}
 
+	removeSnoozeTimers(manager, toUnsnooze)
 	manager.StopAndDisableTimers(toStop)
 	manager.EnableAndStartTimers(toStart)
 

@@ -320,8 +320,27 @@ func confirm(prompt string) bool {
 }
 
 func removeSnoozeTimer(manager *systemd.Manager, name string) {
-	if err := manager.RemoveUnits([]systemd.Unit{{Name: systemd.SnoozeTimerName(name)}}); err != nil {
-		fmt.Fprintf(os.Stderr, "%s failed to remove snooze timer for '%s': %v\n", yellow("Warning:"), name, err)
+	removeSnoozeTimers(manager, []string{name})
+}
+
+// removeSnoozeTimers deletes the snooze timers of the given reminders in a
+// single systemd round trip, which matters because each one costs a
+// daemon-reload.
+func removeSnoozeTimers(manager *systemd.Manager, names []string) {
+	if len(names) == 0 {
+		return
+	}
+
+	units := make([]systemd.Unit, 0, len(names))
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		units = append(units, systemd.Unit{Name: systemd.SnoozeTimerName(name)})
+		quoted = append(quoted, "'"+name+"'")
+	}
+
+	if err := manager.RemoveUnits(units); err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to remove snooze timer%s for %s: %v\n",
+			yellow("Warning:"), plural(len(names)), strings.Join(quoted, ", "), err)
 	}
 }
 
