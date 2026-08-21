@@ -1,11 +1,13 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -345,43 +347,82 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate schedule expressions via systemd-analyze calendar (once per unique schedule).
-	schedules := make(map[string]string) // schedule -> first user (for error messages)
+	// Validate every unique schedule expression in one systemd-analyze call.
+	users := make(map[string]string) // schedule -> first user (for error messages)
+	var schedules []string
 	for name, t := range c.Tasks {
-		if t.Schedule != "" {
-			if _, exists := schedules[t.Schedule]; !exists {
-				schedules[t.Schedule] = "task " + name + c.sourceSuffix("tasks", name)
-			}
+		if t.Schedule == "" {
+			continue
+		}
+		if _, seen := users[t.Schedule]; !seen {
+			users[t.Schedule] = "task " + name + c.sourceSuffix("tasks", name)
+			schedules = append(schedules, t.Schedule)
 		}
 	}
 	for name, r := range c.Reminders {
-		if _, exists := schedules[r.Schedule]; !exists {
-			schedules[r.Schedule] = "reminder " + name + c.sourceSuffix("reminders", name)
+		if _, seen := users[r.Schedule]; !seen {
+			users[r.Schedule] = "reminder " + name + c.sourceSuffix("reminders", name)
+			schedules = append(schedules, r.Schedule)
 		}
 	}
-	for schedule, user := range schedules {
-		if err := validateSchedule(schedule); err != nil {
-			return fmt.Errorf("%s: invalid schedule %q: %v", user, schedule, err)
+	// Sorted so that a config with several bad schedules always names the same one.
+	slices.Sort(schedules)
+
+	rejected := rejectedSchedules(schedules)
+	for _, schedule := range schedules {
+		if reason, bad := rejected[schedule]; bad {
+			return fmt.Errorf("%s: invalid schedule %q: systemd-analyze rejected expression (%s)", users[schedule], schedule, reason)
 		}
 	}
 
 	return nil
 }
 
-// validateSchedule checks a schedule expression by calling systemd-analyze calendar.
-func validateSchedule(schedule string) error {
-	cmd := exec.Command("systemd-analyze", "calendar", schedule)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("systemd-analyze rejected expression (%s)", firstLine(output))
+// rejectedSchedules checks every expression in a single `systemd-analyze
+// calendar` invocation and returns systemd's complaint for each one it
+// rejects. Accepted expressions are absent from the result.
+func rejectedSchedules(schedules []string) map[string]string {
+	if len(schedules) == 0 {
+		return nil
 	}
-	return nil
-}
 
-func firstLine(b []byte) string {
-	for i, c := range b {
-		if c == '\n' {
-			return string(b[:i])
+	cmd := exec.Command("systemd-analyze", append([]string{"calendar"}, schedules...)...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	// A rejected expression is itself a non-zero exit, so the buffers, not the
+	// error, say what happened.
+	//nolint:errcheck
+	cmd.Run()
+
+	// Accepted expressions get a block on stdout echoing them back as "Original
+	// form", or as "Normalized form" when they are already normalized.
+	accepted := make(map[string]bool, len(schedules))
+	for line := range strings.SplitSeq(stdout.String(), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "Original form", "Normalized form":
+			accepted[strings.TrimSpace(value)] = true
 		}
 	}
-	return string(b)
+
+	rejected := make(map[string]string)
+	for _, schedule := range schedules {
+		if !accepted[schedule] {
+			rejected[schedule] = "unrecognized expression"
+		}
+	}
+	// Attach systemd's own wording, which names the offending expression.
+	for line := range strings.SplitSeq(stderr.String(), "\n") {
+		for schedule := range rejected {
+			if strings.Contains(line, "'"+schedule+"'") {
+				rejected[schedule] = line
+			}
+		}
+	}
+
+	return rejected
 }

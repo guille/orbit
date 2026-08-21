@@ -116,6 +116,73 @@ message  = "Test reminder"
 	}
 }
 
+func TestValidate_InvalidSchedule(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.good]
+command  = "echo test"
+schedule = "daily"
+
+[tasks.bad]
+command  = "echo test"
+schedule = "evry day"
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil {
+		t.Fatal("Expected validation error for invalid schedule")
+	}
+	if !strings.Contains(err.Error(), "evry day") {
+		t.Errorf("error should name the offending expression, got: %v", err)
+	}
+}
+
+// A schedule can be well-formed yet have no future trigger, so validation must
+// key off parseability rather than whether a next elapse exists.
+func TestValidate_ScheduleThatNeverElapses(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.past]
+command  = "echo test"
+schedule = "2020-01-01 00:00:00"
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Expected past-only schedule to be valid, got error: %v", err)
+	}
+}
+
+// Several bad schedules must always produce the same complaint.
+func TestValidate_InvalidScheduleIsDeterministic(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.a]
+command  = "echo test"
+schedule = "zzz bad"
+
+[tasks.b]
+command  = "echo test"
+schedule = "aaa bad"
+
+[tasks.c]
+command  = "echo test"
+schedule = "mmm bad"
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	first := cfg.Validate()
+	if first == nil {
+		t.Fatal("Expected validation error for invalid schedules")
+	}
+	for range 5 {
+		if got := cfg.Validate(); got.Error() != first.Error() {
+			t.Fatalf("non-deterministic error:\n  %v\n  %v", first, got)
+		}
+	}
+}
+
 func TestValidate_MissingTaskCommand(t *testing.T) {
 	cfg, err := loadFromString(`
 [tasks.invalid]
