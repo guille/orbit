@@ -170,6 +170,49 @@ func TestListUnits_Error(t *testing.T) {
 	}
 }
 
+func TestStopAndDisableTimers(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	m.StopAndDisableTimers([]string{"orbit-task-a.timer", "orbit-task-b.timer"})
+
+	// One round trip: `disable --now` stops and disables together.
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 systemctl call, got %d: %v", len(mock.Calls), mock.Calls)
+	}
+	want := []string{"--user", "disable", "--now", "orbit-task-a.timer", "orbit-task-b.timer"}
+	if !slices.Equal(mock.Calls[0], want) {
+		t.Errorf("got %v, want %v", mock.Calls[0], want)
+	}
+}
+
+func TestEnableAndStartTimers(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	m.EnableAndStartTimers([]string{"orbit-task-a.timer", "orbit-task-b.timer"})
+
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 systemctl call, got %d: %v", len(mock.Calls), mock.Calls)
+	}
+	want := []string{"--user", "enable", "--now", "orbit-task-a.timer", "orbit-task-b.timer"}
+	if !slices.Equal(mock.Calls[0], want) {
+		t.Errorf("got %v, want %v", mock.Calls[0], want)
+	}
+}
+
+func TestStopAndEnableTimers_Empty(t *testing.T) {
+	mock := &MockSystemctl{}
+	m := &Manager{ctl: mock}
+
+	m.StopAndDisableTimers(nil)
+	m.EnableAndStartTimers(nil)
+
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected no systemctl calls for empty input, got %v", mock.Calls)
+	}
+}
+
 func TestFailedServices_WithMock(t *testing.T) {
 	// systemctl show prints one property block per unit, separated by a blank line.
 	// "ok" succeeded, "bad" failed, "gone" is unknown to systemd (empty Result).

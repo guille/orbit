@@ -174,8 +174,8 @@ func (m *Manager) StopAndDisableTimers(timerNames []string) {
 	if len(timerNames) == 0 {
 		return
 	}
-	m.systemctl("stop", timerNames...)
-	m.systemctl("disable", timerNames...)
+	args := append([]string{"--now"}, timerNames...)
+	m.systemctl("disable", args...)
 }
 
 // EnableAndStartTimers enables and starts multiple timer units in batch.
