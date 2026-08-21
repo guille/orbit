@@ -196,6 +196,8 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 	}
 
 	h := reminder.NewHandler(stateStore)
+	// Ack clears the snooze, so check before it does.
+	wasSnoozed := reminder.IsSnoozed(stateStore.GetReminderState(name))
 	acked, err := h.Ack(name)
 	if err != nil {
 		return fmt.Errorf("saving state: %w", err)
@@ -206,8 +208,9 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	manager := systemd.NewManager()
-	removeSnoozeTimer(manager, name)
+	if wasSnoozed {
+		removeSnoozeTimer(systemd.NewManager(), name)
+	}
 
 	if reminderConfig.Command != "" {
 		shouldRun := autoRun
