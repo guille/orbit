@@ -309,7 +309,7 @@ func (m *Manager) StreamUnitLogs(unitName string, opts LogOptions, stdout, stder
 
 // journalArgs builds the journalctl arguments for a unit's logs.
 func journalArgs(unitName string, opts LogOptions) []string {
-	args := []string{"--user", "-u", unitName, "--no-pager"}
+	args := []string{"--user", "--no-pager"}
 	if opts.Since != "" {
 		args = append(args, "--since", opts.Since)
 	} else {
@@ -318,5 +318,10 @@ func journalArgs(unitName string, opts LogOptions) []string {
 	if opts.Follow {
 		args = append(args, "-f")
 	}
-	return args
+	return append(args,
+		"_SYSTEMD_USER_UNIT="+unitName,
+		"+", "USER_UNIT="+unitName,
+		"+", "COREDUMP_USER_UNIT="+unitName,
+		"+", "SYSLOG_IDENTIFIER="+StreamIdentifier(unitName),
+	)
 }

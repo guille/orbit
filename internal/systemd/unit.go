@@ -35,6 +35,14 @@ func SnoozeTimerName(name string) string {
 	return "orbit-snooze-" + name + ".timer"
 }
 
+// StreamIdentifier returns the SyslogIdentifier for a service unit:
+// "orbit-task-foo" for "orbit-task-foo.service".
+// Needed because output from a short-lived task process is often stored
+// without _SYSTEMD_USER_UNIT  and invisible to `journalctl -u` (systemd#2913).
+func StreamIdentifier(serviceUnit string) string {
+	return strings.TrimSuffix(serviceUnit, ".service")
+}
+
 // orbitUnitGlob narrows unit listings server-side. It admits a superset of
 // IsOrbitUnit, which stays the authoritative filter.
 const orbitUnitGlob = "orbit-*"

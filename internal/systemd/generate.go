@@ -24,6 +24,7 @@ Description=Orbit task {{.Name}}
 [Service]
 Type=oneshot
 WorkingDirectory=%h
+SyslogIdentifier={{.SyslogIdentifier}}
 ExecStart={{.ExecCommand}}
 `))
 
@@ -44,6 +45,7 @@ Description=Orbit reminder {{.Name}}
 [Service]
 Type=oneshot
 WorkingDirectory=%h
+SyslogIdentifier={{.SyslogIdentifier}}
 ExecStart={{.ExecCommand}}
 `))
 
@@ -75,11 +77,13 @@ WantedBy=timers.target
 // Otherwise, both a service and timer unit are generated.
 func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
-		Name        string
-		ExecCommand string
+		Name             string
+		SyslogIdentifier string
+		ExecCommand      string
 	}{
-		Name:        name,
-		ExecCommand: fmt.Sprintf(`%s _run %s`, execBin(orbitBin), name),
+		Name:             name,
+		SyslogIdentifier: StreamIdentifier(TaskServiceName(name)),
+		ExecCommand:      fmt.Sprintf(`%s _run %s`, execBin(orbitBin), name),
 	}
 
 	var serviceBuf strings.Builder
@@ -123,11 +127,13 @@ func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, or
 // schedule is a systemd OnCalendar expression.
 func GenerateReminderUnits(name, schedule, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
-		Name        string
-		ExecCommand string
+		Name             string
+		SyslogIdentifier string
+		ExecCommand      string
 	}{
-		Name:        name,
-		ExecCommand: fmt.Sprintf(`%s _notify %s`, execBin(orbitBin), name),
+		Name:             name,
+		SyslogIdentifier: StreamIdentifier(ReminderServiceName(name)),
+		ExecCommand:      fmt.Sprintf(`%s _notify %s`, execBin(orbitBin), name),
 	}
 
 	var serviceBuf strings.Builder

@@ -25,6 +25,7 @@ func TestGenerateTaskUnits(t *testing.T) {
 	}
 	assertContains(t, svc.Content, "[Service]")
 	assertContains(t, svc.Content, "Type=oneshot")
+	assertContains(t, svc.Content, "SyslogIdentifier=orbit-task-test-task\n")
 	assertContains(t, svc.Content, "_run test-task")
 
 	// Timer unit
@@ -100,6 +101,7 @@ func TestGenerateReminderUnits(t *testing.T) {
 	}
 	assertContains(t, svc.Content, "[Service]")
 	assertContains(t, svc.Content, "Type=oneshot")
+	assertContains(t, svc.Content, "SyslogIdentifier=orbit-reminder-test-reminder\n")
 	assertContains(t, svc.Content, "_notify test-reminder")
 
 	// Timer

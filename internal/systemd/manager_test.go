@@ -100,6 +100,12 @@ func TestVerifyUnits(t *testing.T) {
 
 func TestJournalArgs(t *testing.T) {
 	unit := "orbit-task-backup.service"
+	matches := []string{
+		"_SYSTEMD_USER_UNIT=" + unit,
+		"+", "USER_UNIT=" + unit,
+		"+", "COREDUMP_USER_UNIT=" + unit,
+		"+", "SYSLOG_IDENTIFIER=orbit-task-backup",
+	}
 
 	tests := []struct {
 		name string
@@ -109,17 +115,17 @@ func TestJournalArgs(t *testing.T) {
 		{
 			"lines by default",
 			LogOptions{Lines: 50},
-			[]string{"--user", "-u", unit, "--no-pager", "-n", "50"},
+			append([]string{"--user", "--no-pager", "-n", "50"}, matches...),
 		},
 		{
 			"since takes precedence over lines",
 			LogOptions{Since: "1 hour ago", Lines: 50},
-			[]string{"--user", "-u", unit, "--no-pager", "--since", "1 hour ago"},
+			append([]string{"--user", "--no-pager", "--since", "1 hour ago"}, matches...),
 		},
 		{
 			"follow appends -f",
 			LogOptions{Lines: 20, Follow: true},
-			[]string{"--user", "-u", unit, "--no-pager", "-n", "20", "-f"},
+			append([]string{"--user", "--no-pager", "-n", "20", "-f"}, matches...),
 		},
 	}
 
