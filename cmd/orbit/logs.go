@@ -30,8 +30,7 @@ func streamLogs(unitName string, follow bool, since string, lines int) error {
 
 // printTaskRunLogs prints a task service's journal output since the given start time.
 func printTaskRunLogs(name string, start time.Time) {
-	// journalctl --since granularity is one second; back up slightly just in case
-	since := start.Add(-time.Second).Format("2006-01-02 15:04:05")
+	since := start.Format("2006-01-02 15:04:05.000000")
 	fmt.Println("--- output ---")
 	//nolint:errcheck // best-effort log display; the run result is authoritative
 	streamLogs(systemd.TaskServiceName(name), false, since, 0)
