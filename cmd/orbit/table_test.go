@@ -20,8 +20,7 @@ func TestTableSizesColumnsToContent(t *testing.T) {
 // Colored cells must be measured by visible width, not byte length, or every
 // column after a colored one drifts.
 func TestTableIgnoresANSIWhenSizing(t *testing.T) {
-	colorEnabled = true
-	t.Cleanup(func() { colorEnabled = false })
+	withColor(t)
 
 	tbl := newTable("NAME", "STATUS", "NEXT RUN")
 	tbl.add("backup", green("ok"), "in 2h")
@@ -38,8 +37,7 @@ func TestTableIgnoresANSIWhenSizing(t *testing.T) {
 }
 
 func TestVisibleLen(t *testing.T) {
-	colorEnabled = true
-	t.Cleanup(func() { colorEnabled = false })
+	withColor(t)
 
 	tests := []struct {
 		in   string

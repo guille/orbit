@@ -36,9 +36,9 @@ run     = "govulncheck ./..."
 [tasks.fuzz]
 usage = 'arg "<duration>" default="60s"'
 run   = """
-go test ./cmd/orbit/ -fuzz=FuzzNaturalLess -fuzztime=${usage_duration?}
-go test ./cmd/orbit/ -fuzz=FuzzSplitChunk -fuzztime=${usage_duration?}
-go test ./cmd/orbit/ -fuzz=FuzzCompareNumeric -fuzztime=${usage_duration?}
+go test ./cmd/orbit/ -run='^$' -fuzz=FuzzNaturalLess -fuzztime=${usage_duration?}
+go test ./cmd/orbit/ -run='^$' -fuzz=FuzzSplitChunk -fuzztime=${usage_duration?}
+go test ./cmd/orbit/ -run='^$' -fuzz=FuzzCompareNumeric -fuzztime=${usage_duration?}
 """
 
 [tasks.check]
