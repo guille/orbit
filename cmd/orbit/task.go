@@ -25,23 +25,30 @@ func taskCmd() *cobra.Command {
 	return cmd
 }
 
-func taskRunCmd() *cobra.Command {
-	cmd := &cobra.Command{
+// newRunCmd builds the run command for either mount point.
+func newRunCmd(short, long string) *cobra.Command {
+	return &cobra.Command{
 		Use:               "run NAME",
-		Short:             "Run a task immediately",
-		Long:              `Run a task immediately via systemd. Output is captured to the journal and printed after the run completes.`,
+		Short:             short,
+		Long:              long,
 		Args:              cobra.MaximumNArgs(1),
 		Aliases:           []string{"r"},
 		ValidArgsFunction: completeNames(taskNames),
-		RunE:              taskRunRunE,
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runTaskNow(args)
+		},
 	}
-
-	return cmd
 }
 
-// taskRunRunE is the shared implementation for the run command (used by both
-// "task run" and root "run").
-func taskRunRunE(cmd *cobra.Command, args []string) error {
+func taskRunCmd() *cobra.Command {
+	return newRunCmd(
+		"Run a task immediately",
+		`Run a task immediately via systemd. Output is captured to the journal and printed after the run completes.`,
+	)
+}
+
+// runTaskNow is the shared implementation behind "task run" and root "run".
+func runTaskNow(args []string) error {
 	stateStore, err := newState()
 	if err != nil {
 		return err

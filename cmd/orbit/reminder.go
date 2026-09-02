@@ -162,10 +162,8 @@ func printReminderStatus(stateStore *state.State, name string) error {
 	return nil
 }
 
-// ackRunE is the shared implementation for the ack command (used by both "reminder ack" and root "ack").
-func ackRunE(cmd *cobra.Command, args []string) error {
-	autoRun, _ := cmd.Flags().GetBool("run")
-
+// ackReminder is the shared implementation behind "reminder ack" and root "ack".
+func ackReminder(args []string, autoRun bool) error {
 	stateStore, err := newState()
 	if err != nil {
 		return err
@@ -234,153 +232,142 @@ func ackRunE(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func reminderAckCmd() *cobra.Command {
+// newAckCmd builds the ack command for either mount point. Callers differ only
+// in help text; flags and behavior are defined once here.
+func newAckCmd(short, long string) *cobra.Command {
+	var autoRun bool
+
 	cmd := &cobra.Command{
 		Use:               "ack NAME",
-		Short:             "Acknowledge a reminder",
-		Long:              `Mark a reminder as acknowledged, optionally running its associated command.`,
+		Short:             short,
+		Long:              long,
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeNames(reminderNames),
-		RunE:              ackRunE,
+		RunE: func(_ *cobra.Command, args []string) error {
+			return ackReminder(args, autoRun)
+		},
 	}
 
-	cmd.Flags().BoolP("run", "r", false, "Run the reminder's command without prompting")
+	cmd.Flags().BoolVarP(&autoRun, "run", "r", false, "Run the reminder's command without prompting")
 
 	return cmd
 }
 
-// snoozeRunE is the shared implementation for the snooze command.
-func snoozeRunE(duration *string) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		stateStore, err := newState()
-		if err != nil {
-			return err
-		}
+func reminderAckCmd() *cobra.Command {
+	return newAckCmd(
+		"Acknowledge a reminder",
+		`Mark a reminder as acknowledged, optionally running its associated command.`,
+	)
+}
 
-		if err := rejectWrongKind(stateStore, args, kindReminder); err != nil {
-			return err
-		}
-
-		extract := reminderNames
-		if len(args) == 0 {
-			extract = func(applied *state.AppliedConfig) []string {
-				return actionableReminderNames(applied, stateStore)
-			}
-		}
-		name, err := pickName(args, "Select reminder to snooze:", stateStore, kindReminder, extract)
-		if err != nil {
-			if len(args) == 0 && len(reminderNames(stateStore.GetAppliedConfig())) > 0 {
-				return fmt.Errorf("no reminders are snoozable")
-			}
-			return err
-		}
-
-		reminderConfig, ok := stateStore.GetAppliedReminder(name)
-		if !ok {
-			return notAppliedErr(kindReminder, name)
-		}
-
-		d := *duration
-		if d == "" {
-			d = reminderConfig.Snooze
-		}
-
-		if d == "" {
-			return fmt.Errorf("no snooze duration specified and no default configured for '%s'\n  specify one with --duration 2h, or set 'snooze' in your config", name)
-		}
-
-		dur, err := time.ParseDuration(d)
-		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", d, err)
-		}
-
-		if dur <= 0 {
-			return fmt.Errorf("snooze duration must be positive, got %s", d)
-		}
-
-		snoozeUntil := time.Now().Add(dur)
-		h := reminder.NewHandler(stateStore)
-		if err := h.Snooze(name, snoozeUntil); err != nil {
-			return err
-		}
-
-		// Create a persistent snooze timer that triggers the reminder service.
-		// This survives reboots — systemd will catch up if the time passes while off.
-		manager := systemd.NewManager()
-
-		// Remove any existing snooze timer first (for re-snooze case)
-		removeSnoozeTimer(manager, name)
-
-		snoozeUnit, err := systemd.GenerateSnoozeTimer(name, snoozeUntil)
-		if err != nil {
-			return fmt.Errorf("generating snooze timer: %w", err)
-		}
-		tmpDir, cleanup, err := manager.WriteUnits([]systemd.Unit{snoozeUnit})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s failed to write snooze timer: %v\n", yellow("Warning:"), err)
-			fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
-		} else {
-			defer cleanup()
-			if err := manager.InstallUnits([]systemd.Unit{snoozeUnit}, tmpDir); err != nil {
-				fmt.Fprintf(os.Stderr, "%s failed to create snooze timer: %v\n", yellow("Warning:"), err)
-				fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
-			}
-		}
-
-		fmt.Printf("Reminder '%s' %s (fires %s)\n", bold(name), yellow("snoozed"), formatTime(snoozeUntil))
-		return nil
+// snoozeReminder is the shared implementation behind "reminder snooze" and root
+// "snooze". An empty duration falls back to the reminder's configured default.
+func snoozeReminder(args []string, duration string) error {
+	stateStore, err := newState()
+	if err != nil {
+		return err
 	}
+
+	if err := rejectWrongKind(stateStore, args, kindReminder); err != nil {
+		return err
+	}
+
+	extract := reminderNames
+	if len(args) == 0 {
+		extract = func(applied *state.AppliedConfig) []string {
+			return actionableReminderNames(applied, stateStore)
+		}
+	}
+	name, err := pickName(args, "Select reminder to snooze:", stateStore, kindReminder, extract)
+	if err != nil {
+		if len(args) == 0 && len(reminderNames(stateStore.GetAppliedConfig())) > 0 {
+			return fmt.Errorf("no reminders are snoozable")
+		}
+		return err
+	}
+
+	reminderConfig, ok := stateStore.GetAppliedReminder(name)
+	if !ok {
+		return notAppliedErr(kindReminder, name)
+	}
+
+	d := duration
+	if d == "" {
+		d = reminderConfig.Snooze
+	}
+
+	if d == "" {
+		return fmt.Errorf("no snooze duration specified and no default configured for '%s'\n  specify one with --duration 2h, or set 'snooze' in your config", name)
+	}
+
+	dur, err := time.ParseDuration(d)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", d, err)
+	}
+
+	if dur <= 0 {
+		return fmt.Errorf("snooze duration must be positive, got %s", d)
+	}
+
+	snoozeUntil := time.Now().Add(dur)
+	h := reminder.NewHandler(stateStore)
+	if err := h.Snooze(name, snoozeUntil); err != nil {
+		return err
+	}
+
+	// Create a persistent snooze timer that triggers the reminder service.
+	// This survives reboots — systemd will catch up if the time passes while off.
+	manager := systemd.NewManager()
+
+	// Remove any existing snooze timer first (for re-snooze case)
+	removeSnoozeTimer(manager, name)
+
+	snoozeUnit, err := systemd.GenerateSnoozeTimer(name, snoozeUntil)
+	if err != nil {
+		return fmt.Errorf("generating snooze timer: %w", err)
+	}
+	tmpDir, cleanup, err := manager.WriteUnits([]systemd.Unit{snoozeUnit})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to write snooze timer: %v\n", yellow("Warning:"), err)
+		fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
+	} else {
+		defer cleanup()
+		if err := manager.InstallUnits([]systemd.Unit{snoozeUnit}, tmpDir); err != nil {
+			fmt.Fprintf(os.Stderr, "%s failed to create snooze timer: %v\n", yellow("Warning:"), err)
+			fmt.Fprintln(os.Stderr, dim("The snooze state has been saved, but automatic re-notification may not fire."))
+		}
+	}
+
+	fmt.Printf("Reminder '%s' %s (fires %s)\n", bold(name), yellow("snoozed"), formatTime(snoozeUntil))
+	return nil
+}
+
+// newSnoozeCmd builds the snooze command for either mount point.
+func newSnoozeCmd(short, long string) *cobra.Command {
+	var duration string
+
+	cmd := &cobra.Command{
+		Use:               "snooze [NAME]",
+		Short:             short,
+		Long:              long,
+		Args:              cobra.MaximumNArgs(1),
+		Aliases:           []string{"zz"},
+		ValidArgsFunction: completeNames(reminderNames),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return snoozeReminder(args, duration)
+		},
+	}
+
+	cmd.Flags().StringVarP(&duration, "duration", "d", "", "Snooze duration (e.g. 2h, 30m)")
+
+	return cmd
 }
 
 func reminderSnoozeCmd() *cobra.Command {
-	var duration string
-
-	cmd := &cobra.Command{
-		Use:               "snooze [NAME]",
-		Short:             "Snooze a reminder",
-		Long:              `Snooze a reminder for a specified duration (e.g. 2h, 30m). If no duration is given, uses the default from config.`,
-		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"zz"},
-		ValidArgsFunction: completeNames(reminderNames),
-		RunE:              snoozeRunE(&duration),
-	}
-
-	cmd.Flags().StringVarP(&duration, "duration", "d", "", "Snooze duration (e.g. 2h, 30m)")
-
-	return cmd
-}
-
-// rootAckCmd creates a top-level "orbit ack" shortcut for "orbit reminder ack".
-func rootAckCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:               "ack NAME",
-		Short:             "Acknowledge a reminder (shortcut for 'reminder ack')",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeNames(reminderNames),
-		RunE:              ackRunE,
-	}
-
-	cmd.Flags().BoolP("run", "r", false, "Run the reminder's command without prompting")
-
-	return cmd
-}
-
-// rootSnoozeCmd creates a top-level "orbit snooze" shortcut for "orbit reminder snooze".
-func rootSnoozeCmd() *cobra.Command {
-	var duration string
-
-	cmd := &cobra.Command{
-		Use:               "snooze [NAME]",
-		Short:             "Snooze a reminder (shortcut for 'reminder snooze')",
-		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"zz"},
-		ValidArgsFunction: completeNames(reminderNames),
-		RunE:              snoozeRunE(&duration),
-	}
-
-	cmd.Flags().StringVarP(&duration, "duration", "d", "", "Snooze duration (e.g. 2h, 30m)")
-
-	return cmd
+	return newSnoozeCmd(
+		"Snooze a reminder",
+		`Snooze a reminder for a specified duration (e.g. 2h, 30m). If no duration is given, uses the default from config.`,
+	)
 }
 
 // actionableReminderNames returns reminder names that are pending or snoozed.

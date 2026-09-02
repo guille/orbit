@@ -9,17 +9,23 @@ import (
 // This file defines top-level shortcuts that make the "task"/"reminder"
 // namespace optional for the common verbs. Each resolves NAME to its kind and
 // delegates to the shared implementation used by the namespaced commands.
+//
+// Shortcuts that differ from their namespaced twin only in help text are built
+// by the twin's shared constructor, so flags stay defined in one place.
 
 // rootRunCmd is the top-level "orbit run" shortcut for "orbit task run".
 func rootRunCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:               "run NAME",
-		Short:             "Run a task immediately (shortcut for 'task run')",
-		Args:              cobra.MaximumNArgs(1),
-		Aliases:           []string{"r"},
-		ValidArgsFunction: completeNames(taskNames),
-		RunE:              taskRunRunE,
-	}
+	return newRunCmd("Run a task immediately (shortcut for 'task run')", "")
+}
+
+// rootAckCmd is the top-level "orbit ack" shortcut for "orbit reminder ack".
+func rootAckCmd() *cobra.Command {
+	return newAckCmd("Acknowledge a reminder (shortcut for 'reminder ack')", "")
+}
+
+// rootSnoozeCmd is the top-level "orbit snooze" shortcut for "orbit reminder snooze".
+func rootSnoozeCmd() *cobra.Command {
+	return newSnoozeCmd("Snooze a reminder (shortcut for 'reminder snooze')", "")
 }
 
 // rootStatusCmd is the top-level "orbit status" shortcut that shows the detailed
