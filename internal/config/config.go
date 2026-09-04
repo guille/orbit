@@ -72,6 +72,7 @@ type TaskConfig struct {
 	Schedule string         `toml:"schedule"`
 	OnMissed OnMissedPolicy `toml:"on_missed"`
 	Retry    RetryConfig    `toml:"retry"`
+	IfFailed HookConfig     `toml:"if_failed"`
 }
 
 // RetryConfig represents retry settings for a task.
@@ -86,6 +87,22 @@ func (r RetryConfig) GetAttempts() int {
 		return 0
 	}
 	return *r.Attempts
+}
+
+// HookConfig is a command orbit runs in reaction to a task's outcome.
+type HookConfig struct {
+	Command string `toml:"command"`
+	// After is how many consecutive failed retry cycles must pass before the
+	// hook fires.
+	After *int `toml:"after"`
+}
+
+// GetAfter returns the failed-cycle threshold, defaulting to 0 if nil.
+func (h HookConfig) GetAfter() int {
+	if h.After == nil {
+		return 0
+	}
+	return *h.After
 }
 
 // ReminderConfig represents a reminder configuration.
@@ -287,6 +304,9 @@ func (c *Config) applyDefaults() {
 		if t.Retry.Delay == "" {
 			t.Retry.Delay = "5m"
 		}
+		if t.IfFailed.Command != "" && t.IfFailed.After == nil {
+			t.IfFailed.After = new(1)
+		}
 		c.Tasks[name] = t
 	}
 
@@ -326,6 +346,14 @@ func (c *Config) Validate() error {
 		if t.Retry.Delay != "" {
 			if _, err := time.ParseDuration(t.Retry.Delay); err != nil {
 				return fmt.Errorf("task %s: invalid retry.delay %q: %v%s", name, t.Retry.Delay, err, c.sourceSuffix("tasks", name))
+			}
+		}
+		if t.IfFailed.After != nil {
+			if t.IfFailed.Command == "" {
+				return fmt.Errorf("task %s: if_failed.after requires if_failed.command%s", name, c.sourceSuffix("tasks", name))
+			}
+			if *t.IfFailed.After < 1 {
+				return fmt.Errorf("task %s: if_failed.after must be at least 1%s", name, c.sourceSuffix("tasks", name))
 			}
 		}
 	}

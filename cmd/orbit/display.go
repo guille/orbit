@@ -7,6 +7,7 @@ import (
 
 	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
+	"go.guillerg.dev/orbit/internal/systemd"
 )
 
 // Placeholder cells shared by every listing.
@@ -63,14 +64,24 @@ func reminderNextRun(reminderConfig state.AppliedReminderConfig, rs state.Remind
 }
 
 // taskStatusString returns a colored display string for a task's current status.
-// systemdFailed reports whether the task's last run failed at the systemd level,
-// covering failures the persisted state never recorded.
-func taskStatusString(ts state.TaskState, systemdFailed bool) string {
+// attempts is the configured retry count, which tells an in-flight retry cycle
+// from an exhausted one. systemdFailed reports whether the task's last run
+// failed at the systemd level, covering failures the persisted state never
+// recorded.
+func taskStatusString(ts state.TaskState, attempts int, systemdFailed bool) string {
+	retrying := ts.RetryAttempt > 0 && ts.RetryAttempt < max(attempts, 1)
 	switch {
 	case ts.Disabled:
 		return dim("disabled")
+	case ts.FailedCycles > 0 && retrying:
+		return red(fmt.Sprintf("failed (%d)", ts.FailedCycles)) + yellow(fmt.Sprintf(", retrying %d/%d", ts.RetryAttempt, attempts))
+	case ts.FailedCycles > 0:
+		return red(fmt.Sprintf("failed (%d)", ts.FailedCycles))
+	case retrying:
+		return yellow(fmt.Sprintf("retrying (%d/%d)", ts.RetryAttempt, attempts))
 	case ts.ConsecutiveFailures > 0:
-		return red(fmt.Sprintf("failed (%d)", ts.ConsecutiveFailures))
+		// State written before failed cycles were tracked.
+		return red("failed")
 	case systemdFailed:
 		return red("failed")
 	case ts.LastRun.IsZero():
@@ -123,4 +134,12 @@ func colorizeReminderState(s state.ReminderStatus) string {
 	default:
 		return dim(s.String())
 	}
+}
+
+// systemdResult describes a failed unit's outcome, e.g. "exit-code 203" or "signal".
+func systemdResult(st systemd.UnitStatus) string {
+	if st.Result == "exit-code" {
+		return fmt.Sprintf("exit-code %d", st.ExitStatus)
+	}
+	return st.Result
 }

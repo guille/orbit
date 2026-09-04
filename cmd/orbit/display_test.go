@@ -13,23 +13,32 @@ func TestTaskStatusString(t *testing.T) {
 	tests := []struct {
 		name          string
 		ts            state.TaskState
+		attempts      int
 		systemdFailed bool
 		want          string
 	}{
 		// Disabled always wins, even over a systemd-level failure.
-		{"disabled beats systemd", state.TaskState{Disabled: true, LastRun: past}, true, "disabled"},
-		// The recorded failure count is more informative than the systemd flag.
-		{"failure count beats systemd", state.TaskState{ConsecutiveFailures: 2, LastRun: past}, true, "failed (2)"},
-		// The new branch: systemd reported a failure the state never recorded.
-		{"systemd-only failure", state.TaskState{LastRun: past}, true, "failed"},
+		{"disabled beats systemd", state.TaskState{Disabled: true, LastRun: past}, 3, true, "disabled"},
+		// Settled failures count whole retry cycles, not attempts.
+		{"failed cycles beat systemd", state.TaskState{ConsecutiveFailures: 6, FailedCycles: 2, RetryAttempt: 3, LastRun: past}, 3, true, "failed (2)"},
+		// A cycle still in flight is retrying, not failed.
+		{"retrying", state.TaskState{ConsecutiveFailures: 1, RetryAttempt: 1, LastRun: past}, 3, false, "retrying (1/3)"},
+		// Earlier cycles failed and a new one is under way.
+		{"failed and retrying", state.TaskState{ConsecutiveFailures: 7, FailedCycles: 2, RetryAttempt: 1, LastRun: past}, 3, false, "failed (2), retrying 1/3"},
+		// Without retries an attempt is a cycle, so nothing is ever in flight.
+		{"no retries", state.TaskState{ConsecutiveFailures: 1, FailedCycles: 1, RetryAttempt: 1, LastRun: past}, 0, false, "failed (1)"},
+		// State written before failed cycles were tracked still reads as failed.
+		{"legacy failure", state.TaskState{ConsecutiveFailures: 3, RetryAttempt: 3, LastRun: past}, 3, false, "failed"},
+		// systemd reported a failure the state never recorded.
+		{"systemd-only failure", state.TaskState{LastRun: past}, 3, true, "failed"},
 		// systemd healthy: fall through to state-derived status.
-		{"never run", state.TaskState{}, false, "new"},
-		{"ok", state.TaskState{LastRun: past}, false, "ok"},
+		{"never run", state.TaskState{}, 3, false, "new"},
+		{"ok", state.TaskState{LastRun: past}, 3, false, "ok"},
 	}
 
 	for _, tc := range tests {
-		if got := taskStatusString(tc.ts, tc.systemdFailed); got != tc.want {
-			t.Errorf("%s: taskStatusString(%+v, %v) = %q, want %q", tc.name, tc.ts, tc.systemdFailed, got, tc.want)
+		if got := taskStatusString(tc.ts, tc.attempts, tc.systemdFailed); got != tc.want {
+			t.Errorf("%s: taskStatusString(%+v, %d, %v) = %q, want %q", tc.name, tc.ts, tc.attempts, tc.systemdFailed, got, tc.want)
 		}
 	}
 }

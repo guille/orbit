@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,12 +42,11 @@ func runInternalCmd() *cobra.Command {
 				return notAppliedErr(kindTask, name)
 			}
 
-			runner := task.NewRunner(stateStore)
-
-			if err := runner.Run(name, taskConfig.Command, taskConfig.Retry.ToRetryConfig()); err != nil {
-				return fmt.Errorf("task failed: %w", err)
+			err = task.NewRunner(stateStore).Run(name, taskConfig)
+			if _, ok := errors.AsType[*task.FailedError](err); ok {
+				return exitCodeError{err: err, code: task.ExitTaskFailed}
 			}
-			return nil
+			return err
 		},
 	}
 }
@@ -235,7 +235,7 @@ func getDataDir() (string, error) {
 }
 
 // currentEmbedVersion should be bumped whenever embedded assets (icon.png, schema.json) change.
-const currentEmbedVersion = 3
+const currentEmbedVersion = 4
 
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.
@@ -359,6 +359,10 @@ func toAppliedConfig(cfg *config.Config) *state.AppliedConfig {
 			Retry: state.AppliedRetryConfig{
 				Attempts: t.Retry.GetAttempts(),
 				Delay:    t.Retry.Delay,
+			},
+			IfFailed: state.AppliedHookConfig{
+				Command: t.IfFailed.Command,
+				After:   t.IfFailed.GetAfter(),
 			},
 		}
 	}

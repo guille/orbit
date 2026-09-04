@@ -128,7 +128,7 @@ func taskListCmd() *cobra.Command {
 					orNone(taskConfig.Schedule),
 					formatTime(ts.LastRun),
 					taskNextRun(taskConfig, ts),
-					taskStatusString(ts, failed[name] != ""),
+					taskStatusString(ts, taskConfig.Retry.Attempts, failed[name].Failed()),
 				)
 			}
 			fmt.Print(tbl)
@@ -178,11 +178,15 @@ func printTaskStatus(stateStore *state.State, name string) error {
 	}
 	fmt.Printf("Retry attempts:        %d\n", taskConfig.Retry.Attempts)
 	fmt.Printf("Retry delay:           %s\n", taskConfig.Retry.Delay)
+	if taskConfig.IfFailed.Command != "" {
+		fmt.Printf("If failed:             %s\n", taskConfig.IfFailed.Command)
+		fmt.Printf("If failed after:       %d failed run%s\n", taskConfig.IfFailed.After, plural(taskConfig.IfFailed.After))
+	}
 	fmt.Println()
 	fmt.Printf("Last run:              %s\n", formatTime(ts.LastRun))
 	failed, _ := systemd.NewManager().FailedServices([]string{name})
-	if reason, ok := failed[name]; ok {
-		fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit logs %s')", reason, name)))
+	if st, ok := failed[name]; ok {
+		fmt.Printf("Last exit code:        %s\n", red(fmt.Sprintf("systemd: %s (see 'orbit logs %s')", systemdResult(st), name)))
 	} else {
 		exitCodeStr := green("0")
 		if ts.LastExitCode != 0 {
@@ -196,6 +200,11 @@ func printTaskStatus(stateStore *state.State, name string) error {
 		failuresStr = red(fmt.Sprintf("%d", ts.ConsecutiveFailures))
 	}
 	fmt.Printf("Consecutive failures:  %s\n", failuresStr)
+	cyclesStr := "0"
+	if ts.FailedCycles > 0 {
+		cyclesStr = red(fmt.Sprintf("%d", ts.FailedCycles))
+	}
+	fmt.Printf("Failed runs:           %s\n", cyclesStr)
 	fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
 
 	fmt.Printf("Next run:              %s\n", taskNextRun(taskConfig, ts))

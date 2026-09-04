@@ -226,7 +226,7 @@ func TestFailedServices_WithMock(t *testing.T) {
 	mock := &MockSystemctl{
 		Response: "Id=orbit-task-ok.service\nResult=success\n" +
 			"\n" +
-			"Id=orbit-task-bad.service\nResult=exit-code\n" +
+			"Id=orbit-task-bad.service\nResult=exit-code\nExecMainStatus=203\n" +
 			"\n" +
 			"Result=signal\nId=orbit-task-sig.service\n" +
 			"\n" +
@@ -239,18 +239,18 @@ func TestFailedServices_WithMock(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := map[string]string{"bad": "exit-code", "sig": "signal"}
+	want := map[string]UnitStatus{"bad": {Result: "exit-code", ExitStatus: 203}, "sig": {Result: "signal"}}
 	if len(failed) != len(want) {
 		t.Fatalf("expected %v, got %v", want, failed)
 	}
-	for name, reason := range want {
-		if failed[name] != reason {
-			t.Errorf("expected %s=%s, got %q", name, reason, failed[name])
+	for name, st := range want {
+		if failed[name] != st {
+			t.Errorf("expected %s=%+v, got %+v", name, st, failed[name])
 		}
 	}
 
-	// A single batched call carrying --user, the show subcommand, the Id+Result
-	// property flag, and every requested unit.
+	// A single batched call carrying --user, the show subcommand, the property
+	// flag, and every requested unit.
 	if len(mock.Calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
 	}
@@ -259,7 +259,7 @@ func TestFailedServices_WithMock(t *testing.T) {
 		t.Fatalf("expected `--user show ...`, got %v", args)
 	}
 	joined := strings.Join(args, " ")
-	for _, want := range []string{"--property=Id,Result", "orbit-task-ok.service", "orbit-task-bad.service", "orbit-task-sig.service", "orbit-task-gone.service"} {
+	for _, want := range []string{showProperties, "orbit-task-ok.service", "orbit-task-bad.service", "orbit-task-sig.service", "orbit-task-gone.service"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected args to contain %q, got %v", want, args)
 		}
@@ -300,8 +300,8 @@ func TestUnitStatuses_WithMock(t *testing.T) {
 		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
 	}
 	joined := strings.Join(mock.Calls[0], " ")
-	if !strings.Contains(joined, "show") || !strings.Contains(joined, "--property=Id,ActiveState,UnitFileState") {
-		t.Errorf("expected `show --property=Id,ActiveState,UnitFileState`, got %v", mock.Calls[0])
+	if !strings.Contains(joined, "show") || !strings.Contains(joined, showProperties) {
+		t.Errorf("expected `show %s`, got %v", showProperties, mock.Calls[0])
 	}
 }
 

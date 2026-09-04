@@ -46,7 +46,7 @@ func listCmd() *cobra.Command {
 					orNone(taskConfig.Schedule),
 					formatTime(ts.LastRun),
 					taskNextRun(taskConfig, ts),
-					taskStatusString(ts, failed[name] != ""),
+					taskStatusString(ts, taskConfig.Retry.Attempts, failed[name].Failed()),
 				}})
 			}
 

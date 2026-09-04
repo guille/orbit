@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -103,8 +104,9 @@ func runFakeSystemd() int {
 
 // fakeShow answers `systemctl show --property=... <units>` queries. Unit
 // status is derived by replaying the invocation log, so a unit reports
-// active/enabled iff orbit actually enabled or started it. Result queries
-// (failure detection) print nothing, which orbit parses as "no failures".
+// active/enabled iff orbit actually enabled or started it. Last-run results
+// come from the fake-results file (see setFakeResult); units without an entry
+// report success, as a never-run unit does in real systemd.
 func fakeShow(logPath string, args []string) {
 	var props string
 	var units []string
@@ -115,21 +117,63 @@ func fakeShow(logPath string, args []string) {
 			units = append(units, a)
 		}
 	}
-	if !strings.Contains(props, "ActiveState") {
+	wantState := strings.Contains(props, "ActiveState")
+	wantResult := strings.Contains(props, "Result")
+	if !wantState && !wantResult {
 		return
 	}
 
 	up := replayUnitStates(logPath)
+	results := readFakeResults()
 	for i, u := range units {
 		if i > 0 {
 			fmt.Println()
 		}
-		if up[u] {
-			fmt.Printf("Id=%s\nActiveState=active\nUnitFileState=enabled\n", u)
-		} else {
-			fmt.Printf("Id=%s\nActiveState=inactive\nUnitFileState=disabled\n", u)
+		fmt.Printf("Id=%s\n", u)
+		if wantState {
+			if up[u] {
+				fmt.Printf("ActiveState=active\nUnitFileState=enabled\n")
+			} else {
+				fmt.Printf("ActiveState=inactive\nUnitFileState=disabled\n")
+			}
+		}
+		if wantResult {
+			r, ok := results[u]
+			if !ok {
+				r = fakeResult{result: "success"}
+			}
+			fmt.Printf("Result=%s\nExecMainStatus=%d\n", r.result, r.status)
 		}
 	}
+}
+
+// fakeResult is a canned last-run outcome for one unit.
+type fakeResult struct {
+	result string
+	status int
+}
+
+// fakeResultsPath is the file, inside the isolated HOME, that holds one
+// "unit result status" line per unit with a canned last-run outcome.
+func fakeResultsPath(home string) string {
+	return filepath.Join(home, "fake-results")
+}
+
+func readFakeResults() map[string]fakeResult {
+	results := map[string]fakeResult{}
+	data, err := os.ReadFile(fakeResultsPath(os.Getenv("HOME")))
+	if err != nil {
+		return results
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		status, _ := strconv.Atoi(fields[2])
+		results[fields[0]] = fakeResult{result: fields[1], status: status}
+	}
+	return results
 }
 
 // replayUnitStates scans the invocation log for lifecycle verbs and returns
@@ -249,6 +293,22 @@ func (e *orbitEnv) applyConfig(t *testing.T, body string, extraArgs ...string) r
 	t.Helper()
 	e.writeConfig(t, "orbit_bin = \""+orbitBin+"\"\n\n"+body)
 	return e.run(t, "", append([]string{"apply"}, extraArgs...)...)
+}
+
+// setFakeResult makes the fake systemctl report the given last-run outcome for
+// a unit, e.g. ("orbit-task-backup.service", "exit-code", 203).
+func (e *orbitEnv) setFakeResult(t *testing.T, unit, result string, status int) {
+	t.Helper()
+	f, err := os.OpenFile(fakeResultsPath(e.home), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(f, "%s %s %d\n", unit, result, status); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // resetCalls discards recorded systemctl invocations, so a later assertion sees

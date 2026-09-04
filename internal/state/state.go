@@ -148,6 +148,7 @@ type AppliedTaskConfig struct {
 	Schedule string                `json:"schedule"`
 	OnMissed config.OnMissedPolicy `json:"on_missed"`
 	Retry    AppliedRetryConfig    `json:"retry"`
+	IfFailed AppliedHookConfig     `json:"if_failed,omitzero"`
 }
 
 // AppliedRetryConfig is the applied version of retry settings.
@@ -156,13 +157,10 @@ type AppliedRetryConfig struct {
 	Delay    string `json:"delay"`
 }
 
-// ToRetryConfig converts an applied retry config back to a config.RetryConfig.
-func (r AppliedRetryConfig) ToRetryConfig() config.RetryConfig {
-	attempts := r.Attempts
-	return config.RetryConfig{
-		Attempts: &attempts,
-		Delay:    r.Delay,
-	}
+// AppliedHookConfig is the applied version of a task hook.
+type AppliedHookConfig struct {
+	Command string `json:"command"`
+	After   int    `json:"after"`
 }
 
 // AppliedReminderConfig is the applied (saved) version of a reminder's configuration.
@@ -180,8 +178,11 @@ type TaskState struct {
 	LastExitCode        int       `json:"last_exit_code"`
 	LastDurationMs      int64     `json:"last_duration_ms"`
 	ConsecutiveFailures int       `json:"consecutive_failures"`
-	RetryAttempt        int       `json:"retry_attempt"`
-	Disabled            bool      `json:"disabled,omitempty"`
+	// FailedCycles counts consecutive retry cycles that ended in failure.
+	// Unlike ConsecutiveFailures it ignores individual attempts. Reset on success.
+	FailedCycles int  `json:"failed_cycles,omitempty"`
+	RetryAttempt int  `json:"retry_attempt"`
+	Disabled     bool `json:"disabled,omitempty"`
 }
 
 // ReminderStatus represents the current state of a reminder.

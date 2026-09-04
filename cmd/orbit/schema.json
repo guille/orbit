@@ -67,6 +67,9 @@
         },
         "retry": {
           "$ref": "#/$defs/retry"
+        },
+        "if_failed": {
+          "$ref": "#/$defs/if_failed"
         }
       },
       "additionalProperties": false
@@ -85,6 +88,26 @@
           "type": "string",
           "description": "Delay between retries (e.g. '5m', '30s', '1h30m').",
           "default": "5m"
+        }
+      },
+      "additionalProperties": false
+    },
+    "if_failed": {
+      "type": "object",
+      "description": "Hook that runs when the task command has failed after all retries. Receives ORBIT_TASK, ORBIT_EXIT_CODE, ORBIT_ATTEMPTS, ORBIT_CONSECUTIVE_FAILURES, ORBIT_FAILED_CYCLES and ORBIT_DURATION_MS in its environment.",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The command to execute."
+        },
+        "after": {
+          "type": "integer",
+          "description": "Number of consecutive failed retry cycles before the hook fires. Defaults to 1 (every failed cycle).",
+          "minimum": 1,
+          "default": 1
         }
       },
       "additionalProperties": false

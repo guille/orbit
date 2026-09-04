@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -70,7 +71,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 
 	for _, name := range failed {
 		ts := stateStore.GetTaskState(name)
-		fmt.Printf("%s %s  %s\n", red("!"), name, red(fmt.Sprintf("%d consecutive failures (exit %d)", ts.ConsecutiveFailures, ts.LastExitCode)))
+		fmt.Printf("%s %s  %s %s\n", red("!"), name, taskStatusString(ts, applied.Tasks[name].Retry.Attempts, false), red(fmt.Sprintf("(exit %d)", ts.LastExitCode)))
 		fmt.Printf("    %s\n", dim("orbit logs "+name))
 	}
 	for _, name := range pending {
@@ -193,6 +194,19 @@ func main() {
 	rootCmd.AddCommand(notifyInternalCmd())
 
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		code := 1
+		if e, ok := errors.AsType[exitCodeError](err); ok {
+			code = e.code
+		}
+		os.Exit(code)
 	}
 }
+
+// exitCodeError makes the process exit with code instead of the default 1.
+type exitCodeError struct {
+	err  error
+	code int
+}
+
+func (e exitCodeError) Error() string { return e.err.Error() }
+func (e exitCodeError) Unwrap() error { return e.err }

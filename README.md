@@ -62,6 +62,41 @@ Each task becomes two files: a .timer and a .service unit.
 - `orbit-task-NAME.service` — runs the command, has `Type=oneshot`
 - `orbit-task-NAME.timer` — with `Persistent=true` for catch-up
 
+`orbit _run` exits with a code that tells systemd apart *what* failed:
+
+| exit | meaning |
+|---|---|
+| `0` | the command succeeded |
+| `10` | the command failed after all retries; orbit did its job |
+| `1` | orbit itself failed (unreadable state, task not applied, bad `retry.delay`) |
+
+The command's own exit code never leaks into the process exit code; it is recorded as `last_exit_code` in the state file.
+
+#### Failure hooks
+
+A task may declare an `if_failed` hook:
+
+```toml
+[tasks.backup]
+command           = "rsync -av ~/Documents /mnt/backup/"
+schedule          = "*-*-* 03:00:00"
+if_failed.command = "notify-send \"backup failed\" \"$ORBIT_TASK exited $ORBIT_EXIT_CODE\""
+if_failed.after   = 2
+```
+
+The hook runs once per retry cycle (only after every attempt has failed), so a task with `retry.attempts = 3` produces one hook run rather than three. `after` optionally configures the number of consecutive failed cycles (default 1) to wait for until the hook triggers. State is written before the hook runs, and a failing hook only prints a warning: it can neither lose the failure record nor change the exit code.
+
+The hook inherits orbit's environment plus:
+
+| variable | value |
+|---|---|
+| `ORBIT_TASK` | task name |
+| `ORBIT_EXIT_CODE` | the command's exit code on the last attempt |
+| `ORBIT_ATTEMPTS` | attempts made in this cycle |
+| `ORBIT_CONSECUTIVE_FAILURES` | failed attempts since the last success |
+| `ORBIT_FAILED_CYCLES` | failed cycles since the last success |
+| `ORBIT_DURATION_MS` | duration of the last attempt |
+
 
 ### Reminders
 

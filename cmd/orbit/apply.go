@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -263,7 +264,9 @@ func taskChanged(old state.AppliedTaskConfig, new config.TaskConfig) bool {
 		old.Schedule != new.Schedule ||
 		old.OnMissed != new.OnMissed ||
 		old.Retry.Attempts != new.Retry.GetAttempts() ||
-		old.Retry.Delay != new.Retry.Delay
+		old.Retry.Delay != new.Retry.Delay ||
+		old.IfFailed.Command != new.IfFailed.Command ||
+		old.IfFailed.After != new.IfFailed.GetAfter()
 }
 
 func reminderChanged(old state.AppliedReminderConfig, new config.ReminderConfig) bool {
@@ -444,6 +447,12 @@ func printNewConfigSummary(c configChange) {
 		if t.Retry.GetAttempts() > 0 {
 			fmt.Printf("      retry:     %d attempts, %s delay\n", t.Retry.GetAttempts(), t.Retry.Delay)
 		}
+		if t.IfFailed.Command != "" {
+			fmt.Printf("      if_failed: %s\n", t.IfFailed.Command)
+			if after := t.IfFailed.GetAfter(); after > 1 {
+				fmt.Printf("                 after %d failed cycles\n", after)
+			}
+		}
 	case kindReminder:
 		r := c.newReminder
 		fmt.Printf("      schedule: %s\n", r.Schedule)
@@ -476,6 +485,8 @@ func printConfigDiff(c configChange) {
 				green(fmt.Sprintf("-> %d", new.Retry.GetAttempts())))
 		}
 		diffField("retry.delay", old.Retry.Delay, new.Retry.Delay)
+		diffField("if_failed.command", old.IfFailed.Command, new.IfFailed.Command)
+		diffField("if_failed.after", intOrEmpty(old.IfFailed.After), intOrEmpty(new.IfFailed.GetAfter()))
 	case kindReminder:
 		old, new := c.oldReminder, c.newReminder
 		diffField("command", old.Command, new.Command)
@@ -495,4 +506,12 @@ func diffField(name, oldVal, newVal string) {
 		dim(name+":"),
 		red(oldVal),
 		green("-> "+newVal))
+}
+
+// intOrEmpty formats n for diffField, treating 0 as "unset".
+func intOrEmpty(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }

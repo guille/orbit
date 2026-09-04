@@ -186,8 +186,9 @@ func TestTaskChanged(t *testing.T) {
 		{Command: "echo", Schedule: "daily", OnMissed: "skip", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
 		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(5), Delay: "5m"}},
 		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "10m"}},
+		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}, IfFailed: config.HookConfig{Command: "notify", After: new(1)}},
 	}
-	fields := []string{"command", "schedule", "on_missed", "retry.attempts", "retry.delay"}
+	fields := []string{"command", "schedule", "on_missed", "retry.attempts", "retry.delay", "if_failed.command"}
 	for i, tc := range tests {
 		if !taskChanged(base, tc) {
 			t.Errorf("changing %s should be detected", fields[i])
@@ -808,5 +809,36 @@ func TestDisabledEntryCount(t *testing.T) {
 	}
 	if got := disabledEntryCount(cfg, fakeStateReader{}); got != 0 {
 		t.Errorf("disabledEntryCount with none disabled = %d, want 0", got)
+	}
+}
+
+func TestTaskChanged_IfFailedAfter(t *testing.T) {
+	old := state.AppliedTaskConfig{Command: "echo", Retry: state.AppliedRetryConfig{Attempts: 3, Delay: "5m"}, IfFailed: state.AppliedHookConfig{Command: "notify", After: 1}}
+	same := config.TaskConfig{Command: "echo", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}, IfFailed: config.HookConfig{Command: "notify", After: new(1)}}
+	if taskChanged(old, same) {
+		t.Error("identical hook config should not be changed")
+	}
+
+	bumped := same
+	bumped.IfFailed.After = new(2)
+	if !taskChanged(old, bumped) {
+		t.Error("changing if_failed.after should be detected")
+	}
+}
+
+func TestToAppliedConfig_IfFailed(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"hooked": {Command: "exit 1", IfFailed: config.HookConfig{Command: "notify", After: new(2)}},
+			"plain":  {Command: "exit 0"},
+		},
+	}
+	ac := toAppliedConfig(cfg)
+
+	if got := ac.Tasks["hooked"].IfFailed; got != (state.AppliedHookConfig{Command: "notify", After: 2}) {
+		t.Errorf("unexpected applied hook: %+v", got)
+	}
+	if got := ac.Tasks["plain"].IfFailed; got != (state.AppliedHookConfig{}) {
+		t.Errorf("task without a hook should have a zero applied hook, got %+v", got)
 	}
 }

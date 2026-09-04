@@ -35,99 +35,94 @@ func NewManager() *Manager {
 	return &Manager{ctl: realSystemctl{}}
 }
 
-// FailedServices returns, for each given task whose service unit's last run did
-// not succeed, the systemd failure Result ("exit-code", "signal", "core-dump", ...).
-// Successful, never-run, and unknown units are omitted. All units are queried in a
-// single `systemctl show` invocation.
-func (m *Manager) FailedServices(taskNames []string) (map[string]string, error) {
-	if len(taskNames) == 0 {
+// UnitStatus reports a unit's runtime and install state, and for services the
+// outcome of the last run.
+type UnitStatus struct {
+	Active     bool   // ActiveState == "active"
+	Enabled    bool   // UnitFileState == "enabled"
+	Result     string // Result: "success", "exit-code", "signal", ... ; "" if never run or unknown
+	ExitStatus int    // ExecMainStatus: the main process's exit code when Result is "exit-code"
+}
+
+// Failed reports whether the unit's last run did not succeed.
+func (s UnitStatus) Failed() bool {
+	return s.Result != "" && s.Result != "success"
+}
+
+// showProperties is every property UnitStatuses needs. Asking for all of them
+// at once costs nothing extra and lets one query answer every caller.
+const showProperties = "--property=Id,ActiveState,UnitFileState,Result,ExecMainStatus"
+
+// UnitStatuses returns the status of each given unit, keyed by unit name, in a
+// single `systemctl show` invocation. Units unknown to systemd report as
+// neither active nor enabled, with an empty Result.
+func (m *Manager) UnitStatuses(units []string) (map[string]UnitStatus, error) {
+	if len(units) == 0 {
 		return nil, nil
 	}
 
-	unitToTask := make(map[string]string, len(taskNames))
-	args := make([]string, 0, len(taskNames)+1)
-	args = append(args, "--property=Id,Result")
-	for _, name := range taskNames {
-		unit := TaskServiceName(name)
-		unitToTask[unit] = name
-		args = append(args, unit)
-	}
-
-	output, err := m.systemctlOutput("show", args...)
+	output, err := m.systemctlOutput("show", append([]string{showProperties}, units...)...)
 	if err != nil {
 		return nil, err
 	}
 
 	// systemctl show prints one property block per unit, separated by a blank
 	// line. Parse each block by key so property order doesn't matter.
-	failed := make(map[string]string)
-	for block := range strings.SplitSeq(strings.TrimSpace(output), "\n\n") {
-		var id, result string
-		for line := range strings.SplitSeq(block, "\n") {
-			key, value, ok := strings.Cut(line, "=")
-			if !ok {
-				continue
-			}
-			switch strings.TrimSpace(key) {
-			case "Id":
-				id = strings.TrimSpace(value)
-			case "Result":
-				result = strings.TrimSpace(value)
-			}
-		}
-		if result != "" && result != "success" {
-			if task, ok := unitToTask[id]; ok {
-				failed[task] = result
-			}
-		}
-	}
-
-	return failed, nil
-}
-
-// UnitStatus reports a unit's runtime and install state.
-type UnitStatus struct {
-	Active  bool // ActiveState == "active"
-	Enabled bool // UnitFileState == "enabled"
-}
-
-// UnitStatuses returns the active/enabled status of each given unit, keyed by
-// unit name, in a single `systemctl show` invocation. Units unknown to systemd
-// report as neither active nor enabled.
-func (m *Manager) UnitStatuses(units []string) (map[string]UnitStatus, error) {
-	if len(units) == 0 {
-		return nil, nil
-	}
-
-	args := append([]string{"--property=Id,ActiveState,UnitFileState"}, units...)
-	output, err := m.systemctlOutput("show", args...)
-	if err != nil {
-		return nil, err
-	}
-
 	statuses := make(map[string]UnitStatus, len(units))
 	for block := range strings.SplitSeq(strings.TrimSpace(output), "\n\n") {
-		var id, active, enabled string
+		var id string
+		var st UnitStatus
 		for line := range strings.SplitSeq(block, "\n") {
 			key, value, ok := strings.Cut(line, "=")
 			if !ok {
 				continue
 			}
+			value = strings.TrimSpace(value)
 			switch strings.TrimSpace(key) {
 			case "Id":
-				id = strings.TrimSpace(value)
+				id = value
 			case "ActiveState":
-				active = strings.TrimSpace(value)
+				st.Active = value == "active"
 			case "UnitFileState":
-				enabled = strings.TrimSpace(value)
+				st.Enabled = value == "enabled"
+			case "Result":
+				st.Result = value
+			case "ExecMainStatus":
+				st.ExitStatus, _ = strconv.Atoi(value)
 			}
 		}
 		if id != "" {
-			statuses[id] = UnitStatus{Active: active == "active", Enabled: enabled == "enabled"}
+			statuses[id] = st
 		}
 	}
 
 	return statuses, nil
+}
+
+// FailedServices returns the status of each given task whose service unit's
+// last run did not succeed, keyed by task name. Successful, never-run, and
+// unknown units are omitted. All units are queried in one invocation.
+func (m *Manager) FailedServices(taskNames []string) (map[string]UnitStatus, error) {
+	if len(taskNames) == 0 {
+		return nil, nil
+	}
+
+	units := make([]string, 0, len(taskNames))
+	for _, name := range taskNames {
+		units = append(units, TaskServiceName(name))
+	}
+	statuses, err := m.UnitStatuses(units)
+	if err != nil {
+		return nil, err
+	}
+
+	failed := make(map[string]UnitStatus)
+	for _, name := range taskNames {
+		if st := statuses[TaskServiceName(name)]; st.Failed() {
+			failed[name] = st
+		}
+	}
+	return failed, nil
 }
 
 // RunTaskNow starts a task's service unit synchronously via `systemctl --user

@@ -21,6 +21,11 @@ schedule       = "*-*-* 03:00:00"  # daily at 3 AM
 on_missed      = "run_once"
 retry.attempts = 3
 retry.delay    = "5m"
+# Runs once per failed retry cycle, after all attempts are exhausted. The command
+# sees ORBIT_TASK, ORBIT_EXIT_CODE, ORBIT_ATTEMPTS, ORBIT_CONSECUTIVE_FAILURES,
+# ORBIT_FAILED_CYCLES and ORBIT_DURATION_MS in its environment.
+if_failed.command = "notify-send \"backup failed\" \"$ORBIT_TASK exited $ORBIT_EXIT_CODE\""
+if_failed.after   = 2  # only after 2 consecutive failed cycles (default 1)
 
 [tasks.deploy]
 command = "/path/to/scripts/deploy.sh"

@@ -13,6 +13,7 @@ import (
 	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
+	"go.guillerg.dev/orbit/internal/task"
 )
 
 // doctorCheckNum numbers diagnostic checks sequentially in output.
@@ -54,12 +55,13 @@ func doctorCmd() *cobra.Command {
 
 			allPassed = checkAppliedConfig(cfg, applied) && allPassed
 			allPassed = checkSystemdUnitsDrift(applied) && allPassed
-			allPassed = checkTaskStates(cfg, applied, stateStore) && allPassed
+			snap := snapshotUnits(applied)
+			allPassed = checkTaskStates(applied, stateStore, snap) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
 			allPassed = checkServiceUnits(applied) && allPassed
-			allPassed = checkTimerStates(applied, stateStore) && allPassed
-			allPassed = checkDisabledUnits(applied, stateStore) && allPassed
+			allPassed = checkTimerStates(applied, stateStore, snap) && allPassed
+			allPassed = checkDisabledUnits(applied, stateStore, snap) && allPassed
 
 			if allPassed {
 				fmt.Printf("\n%s\n", green("All checks passed!"))
@@ -249,31 +251,109 @@ func generateDesiredUnits(applied *state.AppliedConfig) ([]systemd.Unit, bool) {
 	return units, ok
 }
 
-// checkTaskStates checks for tasks with consecutive failures.
-func checkTaskStates(cfg *config.Config, applied *state.AppliedConfig, stateStore *state.State) bool {
-	nextCheck("Checking task states")
-	names := collectNames(
-		mapKeys(cfg.Tasks),
-		appliedTaskNames(applied),
-	)
+// unitSnapshot is one batched systemctl query answering every per-unit check,
+// so doctor pays a single round trip for timers and services alike.
+type unitSnapshot struct {
+	statuses map[string]systemd.UnitStatus
+	err      error
+}
 
-	hasErrors := false
-	for _, name := range names {
-		ts := stateStore.GetTaskState(name)
-		if ts.ConsecutiveFailures > 0 {
-			if !hasErrors {
-				fmt.Println()
-				hasErrors = true
-			}
-			fmt.Printf("   %s: %s has %d consecutive failures\n", red("FAIL"), name, ts.ConsecutiveFailures)
-			fmt.Printf("         Run 'orbit task logs %s' to investigate.\n", name)
+func snapshotUnits(applied *state.AppliedConfig) unitSnapshot {
+	if applied == nil {
+		return unitSnapshot{}
+	}
+	var units []string
+	for name, cfg := range applied.Tasks {
+		units = append(units, systemd.TaskServiceName(name))
+		if cfg.Schedule != "" {
+			units = append(units, systemd.TaskTimerName(name))
 		}
 	}
-	if hasErrors {
+	for name := range applied.Reminders {
+		units = append(units, systemd.ReminderTimerName(name))
+	}
+	statuses, err := systemd.NewManager().UnitStatuses(units)
+	return unitSnapshot{statuses: statuses, err: err}
+}
+
+// checkTaskStates reports tasks whose last run did not succeed. A command that
+// failed is the task's problem and only warns; orbit being unable to run it at
+// all fails the check. Disabled tasks are skipped.
+func checkTaskStates(applied *state.AppliedConfig, stateStore *state.State, snap unitSnapshot) bool {
+	nextCheck("Checking task states")
+	if applied == nil {
+		fmt.Println(dim("SKIP") + " (no applied config)")
+		return true
+	}
+	if snap.err != nil {
+		fmt.Println(red("FAIL"))
+		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), snap.err)
 		return false
 	}
-	fmt.Println(green("PASS"))
-	return true
+
+	names := applied.TaskNames()
+	sortNatural(names)
+
+	ok := true
+	var lines []string
+	for _, name := range names {
+		ts := stateStore.GetTaskState(name)
+		if ts.Disabled {
+			continue
+		}
+		d, found := diagnoseTask(ts, applied.Tasks[name].Retry.Attempts, snap.statuses[systemd.TaskServiceName(name)])
+		if !found {
+			continue
+		}
+		label := yellow("WARNING")
+		if d.fatal {
+			label = red("FAIL")
+			ok = false
+		}
+		lines = append(lines,
+			fmt.Sprintf("   %s: %s %s", label, name, d.msg),
+			fmt.Sprintf("         Run 'orbit logs %s' to investigate.", name))
+	}
+
+	if len(lines) == 0 {
+		fmt.Println(green("PASS"))
+		return true
+	}
+	fmt.Println()
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	return ok
+}
+
+// taskDiagnosis is doctor's verdict on a task's last run.
+type taskDiagnosis struct {
+	fatal bool // orbit could not do its job, as opposed to the command failing
+	msg   string
+}
+
+// diagnoseTask combines orbit's own record of a task with systemd's view of its
+// service unit. `orbit _run` exits ExitTaskFailed when the command failed, so
+// any other non-zero status means orbit itself never finished the job; the
+// state file, written by orbit, then says nothing about that run.
+func diagnoseTask(ts state.TaskState, attempts int, st systemd.UnitStatus) (taskDiagnosis, bool) {
+	switch {
+	case st.Result == "exit-code" && st.ExitStatus == task.ExitTaskFailed:
+		// orbit ran and recorded the failure: fall through to the state record.
+	case st.Result == "exit-code" && st.ExitStatus == 203:
+		return taskDiagnosis{true, "orbit could not be executed (exit 203); check orbit_bin"}, true
+	case st.Result == "exit-code" && st.ExitStatus == 200:
+		return taskDiagnosis{true, "orbit could not start (exit 200); home directory unreachable"}, true
+	case st.Result == "exit-code":
+		return taskDiagnosis{true, fmt.Sprintf("orbit failed (exit %d)", st.ExitStatus)}, true
+	case st.Failed():
+		return taskDiagnosis{true, fmt.Sprintf("orbit was killed (%s)", st.Result)}, true
+	}
+
+	if ts.ConsecutiveFailures > 0 {
+		return taskDiagnosis{false, fmt.Sprintf("%s, exit %d", taskStatusString(ts, attempts, false), ts.LastExitCode)}, true
+	}
+	return taskDiagnosis{}, false
 }
 
 // checkReminderStates checks for overdue reminders.
@@ -387,7 +467,7 @@ func checkServiceUnits(applied *state.AppliedConfig) bool {
 }
 
 // checkTimerStates verifies all timers are active and enabled.
-func checkTimerStates(applied *state.AppliedConfig, stateStore *state.State) bool {
+func checkTimerStates(applied *state.AppliedConfig, stateStore *state.State, snap unitSnapshot) bool {
 	nextCheck("Checking timer states")
 	if applied == nil {
 		fmt.Println(dim("SKIP") + " (no applied config)")
@@ -418,16 +498,15 @@ func checkTimerStates(applied *state.AppliedConfig, stateStore *state.State) boo
 		return true
 	}
 
-	statuses, err := systemd.NewManager().UnitStatuses(timerNames)
-	if err != nil {
+	if snap.err != nil {
 		fmt.Println(red("FAIL"))
-		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), err)
+		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), snap.err)
 		return false
 	}
 
 	var problems []string
 	for _, name := range timerNames {
-		st := statuses[name]
+		st := snap.statuses[name]
 		switch {
 		case !st.Active && !st.Enabled:
 			problems = append(problems, fmt.Sprintf("%s is not active or enabled", name))
@@ -458,13 +537,6 @@ func mapKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-func appliedTaskNames(applied *state.AppliedConfig) []string {
-	if applied == nil {
-		return nil
-	}
-	return mapKeys(applied.Tasks)
-}
-
 func appliedReminderNames(applied *state.AppliedConfig) []string {
 	if applied == nil {
 		return nil
@@ -490,7 +562,7 @@ func collectNames(lists ...[]string) []string {
 // installed, so an entry disabled in state but still running in systemd (enabled
 // out of band, say) would otherwise go unreported: checkTimerStates skips
 // disabled entries by design.
-func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State) bool {
+func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State, snap unitSnapshot) bool {
 	if applied == nil {
 		return true
 	}
@@ -527,18 +599,15 @@ func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State) b
 		parts = append(parts, fmt.Sprintf("%d reminder%s", disabledReminders, plural(disabledReminders)))
 	}
 
+	if snap.err != nil {
+		fmt.Println(red("FAIL"))
+		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), snap.err)
+		return false
+	}
 	var stillRunning []string
-	if len(timers) > 0 {
-		statuses, err := systemd.NewManager().UnitStatuses(timers)
-		if err != nil {
-			fmt.Println(red("FAIL"))
-			fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), err)
-			return false
-		}
-		for _, name := range timers {
-			if st := statuses[name]; st.Active || st.Enabled {
-				stillRunning = append(stillRunning, name)
-			}
+	for _, name := range timers {
+		if st := snap.statuses[name]; st.Active || st.Enabled {
+			stillRunning = append(stillRunning, name)
 		}
 	}
 

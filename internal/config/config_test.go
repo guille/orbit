@@ -1067,3 +1067,79 @@ func TestInclude_OptionalGlob(t *testing.T) {
 		t.Errorf("expected 0 files (nothing matches), got %v", res.Files)
 	}
 }
+
+func TestLoadConfig_IfFailedDefaults(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.hooked]
+command           = "exit 1"
+if_failed.command = "notify-send failed"
+
+[tasks.plain]
+command = "exit 0"
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Expected valid config, got %v", err)
+	}
+
+	hooked := cfg.Tasks["hooked"].IfFailed
+	assertEqual(t, "IfFailed.Command", hooked.Command, "notify-send failed")
+	assertEqualInt(t, "IfFailed.After", hooked.GetAfter(), 1)
+
+	// No hook means no threshold either, so the applied config stays zero.
+	plain := cfg.Tasks["plain"].IfFailed
+	if plain.After != nil {
+		t.Fatalf("Expected nil after without a hook command, got %d", *plain.After)
+	}
+}
+
+func TestLoadConfig_IfFailedExplicitAfter(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.test]
+command           = "exit 1"
+if_failed.command = "notify-send failed"
+if_failed.after   = 3
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Expected valid config, got %v", err)
+	}
+	assertEqualInt(t, "IfFailed.After", cfg.Tasks["test"].IfFailed.GetAfter(), 3)
+}
+
+func TestValidate_IfFailedAfterWithoutCommand(t *testing.T) {
+	cfg, err := loadFromString(`
+[tasks.test]
+command         = "exit 1"
+if_failed.after = 2
+`)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "if_failed.after requires if_failed.command") {
+		t.Fatalf("Expected error about missing if_failed.command, got %v", err)
+	}
+}
+
+func TestValidate_IfFailedAfterBelowOne(t *testing.T) {
+	for _, after := range []int{0, -1} {
+		cfg, err := loadFromString(fmt.Sprintf(`
+[tasks.test]
+command           = "exit 1"
+if_failed.command = "notify"
+if_failed.after   = %d
+`, after))
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		err = cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "if_failed.after must be at least 1") {
+			t.Fatalf("after=%d: expected threshold error, got %v", after, err)
+		}
+	}
+}
