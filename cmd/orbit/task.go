@@ -14,13 +14,15 @@ func taskCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
 		Short: "Task management commands",
-		Long:  `Manage orbit tasks: run, list, status, logs.`,
+		Long:  `Manage orbit tasks: run, list, status, logs, skip, unskip.`,
 	}
 
 	cmd.AddCommand(taskRunCmd())
 	cmd.AddCommand(taskListCmd())
 	cmd.AddCommand(taskStatusCmd())
 	cmd.AddCommand(taskLogsCmd())
+	cmd.AddCommand(taskSkipCmd())
+	cmd.AddCommand(taskUnskipCmd())
 
 	return cmd
 }
@@ -65,6 +67,21 @@ func runTaskNow(args []string) error {
 	taskConfig, ok := stateStore.GetAppliedTask(name)
 	if !ok {
 		return notAppliedErr(kindTask, name)
+	}
+
+	// The service cannot tell a manual start from a scheduled one, so the skip
+	// is resolved here: cleared on request, or the run is refused.
+	if resume, skipped := skipResume(taskConfig.Schedule, stateStore.GetTaskState(name).SkipUntil); skipped {
+		if !isInteractive() {
+			return fmt.Errorf("'%s' is skipped (resumes %s); run 'orbit unskip %s' first", name, formatTime(resume), name)
+		}
+		if !confirm(fmt.Sprintf("'%s' is skipped (resumes %s). Clear the skip and run?", name, formatTime(resume))) {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+		if err := clearSkip(stateStore, kindTask, name); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("Running task %q\n", name)
@@ -128,7 +145,7 @@ func taskListCmd() *cobra.Command {
 					orNone(taskConfig.Schedule),
 					formatTime(ts.LastRun),
 					taskNextRun(taskConfig, ts),
-					taskStatusString(ts, taskConfig.Retry.Attempts, failed[name].Failed()),
+					taskStatusString(taskConfig, ts, failed[name].Failed()),
 				)
 			}
 			fmt.Print(tbl)
@@ -207,6 +224,9 @@ func printTaskStatus(stateStore *state.State, name string) error {
 	fmt.Printf("Failed runs:           %s\n", cyclesStr)
 	fmt.Printf("Retry attempt:         %d\n", ts.RetryAttempt)
 
+	if resume, ok := skipResume(taskConfig.Schedule, ts.SkipUntil); ok {
+		fmt.Printf("Skipped:               resumes %s\n", formatTime(resume))
+	}
 	fmt.Printf("Next run:              %s\n", taskNextRun(taskConfig, ts))
 	return nil
 }

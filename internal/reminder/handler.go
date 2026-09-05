@@ -10,9 +10,12 @@ import (
 )
 
 // StateTracker defines the interface for state operations needed by Handler.
+// The fire path writes through UpdateReminderState: a slow check command must
+// not let Fire overwrite what the user changed on the entry meanwhile.
 type StateTracker interface {
 	GetReminderState(name string) state.ReminderState
 	SetReminderState(name string, rs state.ReminderState)
+	UpdateReminderState(name string, fn func(*state.ReminderState)) error
 	Save() error
 }
 
@@ -75,23 +78,20 @@ func Dismiss(rs state.ReminderState) state.ReminderState {
 // Otherwise it transitions to pending with overdue count 1. Disabled
 // reminders never fire.
 func (h *Handler) Fire(name string) error {
-	rs := h.State.GetReminderState(name)
-	if rs.Disabled {
+	if h.State.GetReminderState(name).Disabled {
 		return nil
 	}
 	now := time.Now()
-
-	if IsActionable(rs) {
-		rs.OverdueCount++
-	} else {
-		rs.OverdueCount = 1
-	}
-	rs.State = state.StatePending
-	rs.FiredAt = now
-	rs.SnoozedUntil = nil
-
-	h.State.SetReminderState(name, rs)
-	return h.State.Save()
+	return h.State.UpdateReminderState(name, func(rs *state.ReminderState) {
+		if IsActionable(*rs) {
+			rs.OverdueCount++
+		} else {
+			rs.OverdueCount = 1
+		}
+		rs.State = state.StatePending
+		rs.FiredAt = now
+		rs.SnoozedUntil = nil
+	})
 }
 
 // CheckPasses runs the reminder's check command, records the outcome in state,
@@ -105,11 +105,12 @@ func (h *Handler) CheckPasses(name, check string) (bool, error) {
 
 	exitCode, runErr := h.Check.Run(check)
 
-	rs := h.State.GetReminderState(name)
-	rs.LastCheckExitCode = &exitCode
-	rs.LastCheckAt = time.Now()
-	h.State.SetReminderState(name, rs)
-	if err := h.State.Save(); err != nil {
+	now := time.Now()
+	err := h.State.UpdateReminderState(name, func(rs *state.ReminderState) {
+		rs.LastCheckExitCode = &exitCode
+		rs.LastCheckAt = now
+	})
+	if err != nil {
 		return false, err
 	}
 

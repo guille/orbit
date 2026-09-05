@@ -146,6 +146,9 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 			ts := stateStore.GetTaskState(name)
 			if ts.Disabled != disable {
 				ts.Disabled = disable
+				if disable {
+					ts.SkipUntil = nil
+				}
 				stateStore.SetTaskState(name, ts)
 				changed++
 
@@ -164,6 +167,9 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 			rs := stateStore.GetReminderState(name)
 			if rs.Disabled != disable {
 				rs.Disabled = disable
+				if disable {
+					rs.SkipUntil = nil
+				}
 				if disable && reminder.IsActionable(rs) {
 					if reminder.IsSnoozed(rs) {
 						toUnsnooze = append(toUnsnooze, name)

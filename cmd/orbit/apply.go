@@ -157,6 +157,7 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 			stateStore.DeleteReminderState(c.name)
 		}
 	}
+	unskipped := clearSkipsOnScheduleChange(cs, stateStore)
 
 	stateStore.SetAppliedConfig(toAppliedConfig(cfg))
 	if err := stateStore.Save(); err != nil {
@@ -171,6 +172,9 @@ func runApply(cfg *config.Config, stateStore *state.State, precomputed *configCh
 
 	fmt.Printf("Done. %d created, %d updated, %d removed, %d unchanged.\n",
 		cs.nCreate, cs.nUpdate, cs.nRemove, cs.nUnchanged)
+	for _, name := range unskipped {
+		fmt.Printf("%s\n", dim(fmt.Sprintf("(skip on '%s' cleared: schedule changed)", name)))
+	}
 	if n := disabledEntryCount(cfg, stateStore); n > 0 {
 		fmt.Printf("%s\n", dim(fmt.Sprintf("(%d entries disabled)", n)))
 	}
@@ -360,6 +364,37 @@ func unitsToRemove(cs configChangeSet) (units []systemd.Unit, removed []configCh
 type stateReader interface {
 	GetTaskState(name string) state.TaskState
 	GetReminderState(name string) state.ReminderState
+}
+
+// clearSkipsOnScheduleChange drops the skip window of every updated entry whose
+// schedule changed, returning their names. A skip means "not the next N of
+// this schedule"; against a different schedule the stored instant would cover
+// an arbitrary number of firings, or none if the schedule went away.
+func clearSkipsOnScheduleChange(cs configChangeSet, stateStore *state.State) []string {
+	var names []string
+	for _, c := range cs.changes {
+		if c.action != actionUpdate {
+			continue
+		}
+		switch c.kind {
+		case kindTask:
+			ts := stateStore.GetTaskState(c.name)
+			if ts.SkipUntil != nil && c.oldTask.Schedule != c.newTask.Schedule {
+				ts.SkipUntil = nil
+				stateStore.SetTaskState(c.name, ts)
+				names = append(names, c.name)
+			}
+		case kindReminder:
+			rs := stateStore.GetReminderState(c.name)
+			if rs.SkipUntil != nil && c.oldReminder.Schedule != c.newReminder.Schedule {
+				rs.SkipUntil = nil
+				stateStore.SetReminderState(c.name, rs)
+				names = append(names, c.name)
+			}
+		}
+	}
+	sortNatural(names)
+	return names
 }
 
 // timersToDisable returns the timers apply has to disable after installing:

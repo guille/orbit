@@ -26,10 +26,11 @@ func (e *FailedError) Error() string {
 }
 
 // StateTracker defines the interface for state operations needed by Runner.
+// Writes go through UpdateTaskState so a run that takes hours cannot overwrite
+// what the user changed on the entry in the meantime.
 type StateTracker interface {
 	GetTaskState(name string) state.TaskState
-	SetTaskState(name string, state state.TaskState)
-	Save() error
+	UpdateTaskState(name string, fn func(*state.TaskState)) error
 }
 
 // commandResult holds the outcome of running a command.
@@ -133,8 +134,7 @@ func (r *Runner) Run(name string, cfg state.AppliedTaskConfig) error {
 			taskState.ConsecutiveFailures = 0
 			taskState.FailedCycles = 0
 			taskState.RetryAttempt = 0
-			r.State.SetTaskState(name, taskState)
-			if saveErr := r.State.Save(); saveErr != nil {
+			if saveErr := r.recordRun(name, taskState); saveErr != nil {
 				return fmt.Errorf("failed to save state after task success: %w", saveErr)
 			}
 			return nil
@@ -148,8 +148,7 @@ func (r *Runner) Run(name string, cfg state.AppliedTaskConfig) error {
 		}
 		fmt.Fprintf(os.Stderr, "[ORBIT] Command `%s` failed (exit: %d) (attempt: %d)\n", cfg.Command, result.ExitCode, taskState.RetryAttempt)
 
-		r.State.SetTaskState(name, taskState)
-		if saveErr := r.State.Save(); saveErr != nil {
+		if saveErr := r.recordRun(name, taskState); saveErr != nil {
 			return fmt.Errorf("failed to save state after task failure: %w", saveErr)
 		}
 	}
@@ -158,6 +157,19 @@ func (r *Runner) Run(name string, cfg state.AppliedTaskConfig) error {
 	r.runIfFailed(name, cfg.IfFailed, taskState)
 
 	return &FailedError{Task: name, Attempts: taskState.RetryAttempt, LastExitCode: taskState.LastExitCode}
+}
+
+// recordRun persists the run-tracking fields of run, which the runner owns
+// exclusively, without touching the fields user commands own.
+func (r *Runner) recordRun(name string, run state.TaskState) error {
+	return r.State.UpdateTaskState(name, func(ts *state.TaskState) {
+		ts.LastRun = run.LastRun
+		ts.LastDurationMs = run.LastDurationMs
+		ts.LastExitCode = run.LastExitCode
+		ts.ConsecutiveFailures = run.ConsecutiveFailures
+		ts.FailedCycles = run.FailedCycles
+		ts.RetryAttempt = run.RetryAttempt
+	})
 }
 
 // runIfFailed fires the if_failed hook once the failed-cycle threshold is

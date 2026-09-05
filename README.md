@@ -72,6 +72,8 @@ Each task becomes two files: a .timer and a .service unit.
 
 The command's own exit code never leaks into the process exit code; it is recorded as `last_exit_code` in the state file.
 
+A run suppressed by `orbit skip` (see Reminders below) exits `0` without running the command and touches none of the run-tracking state: it is neither a run nor a failure, and never fires `if_failed`.
+
 #### Failure hooks
 
 A task may declare an `if_failed` hook:
@@ -109,6 +111,8 @@ When a reminder fires, a desktop notification is sent via `notify-send`.
 The command `orbit ack $reminder_name` acknowledges the reminder: marks it done, clears the pending state, and prompts to run the command (if set).
 
 The user may also wish to snooze a reminder. This can be done with `orbit snooze`. Internally, orbit writes "snoozed until T" to state, and then creates a systemd timer to trigger the reminder again.
+
+A reminder (or task) can also be skipped: `orbit skip NAME` suppresses the next scheduled firing, `--next 3` the next three, `--until Monday` everything before Monday 00:00. Unlike `disable`, the timer stays armed and nothing needs re-enabling. Unlike `snooze`, nothing is pending: a pending reminder must be acked or snoozed before it can be skipped. Internally, orbit writes "skip until T" to state and the service consults it when the timer fires, so a `Persistent=` catch-up for a skipped occurrence is swallowed too, and a journal line records why nothing happened. `orbit unskip` clears it, and so does `orbit disable`.
 
 A simple sentinel fine (default location ~/.local/share/orbit/pending) is created when there is at least one reminder that needs to be acknowledged. It contains the number of pending reminders as a number. This can be used for scripting or shell integration.
 

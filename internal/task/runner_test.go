@@ -26,11 +26,10 @@ func (m *MockStateTracker) GetTaskState(name string) state.TaskState {
 	return m.TaskStates[name]
 }
 
-func (m *MockStateTracker) SetTaskState(name string, ts state.TaskState) {
+func (m *MockStateTracker) UpdateTaskState(name string, fn func(*state.TaskState)) error {
+	ts := m.TaskStates[name]
+	fn(&ts)
 	m.TaskStates[name] = ts
-}
-
-func (m *MockStateTracker) Save() error {
 	m.SaveCalled++
 	return m.SaveError
 }

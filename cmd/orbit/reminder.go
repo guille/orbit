@@ -17,7 +17,7 @@ func reminderCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reminder",
 		Short: "Reminder management commands",
-		Long:  `Manage orbit reminders: list, status, logs, ack, snooze.`,
+		Long:  `Manage orbit reminders: list, status, logs, ack, snooze, skip, unskip.`,
 	}
 
 	cmd.AddCommand(reminderListCmd())
@@ -25,6 +25,8 @@ func reminderCmd() *cobra.Command {
 	cmd.AddCommand(reminderLogsCmd())
 	cmd.AddCommand(reminderAckCmd())
 	cmd.AddCommand(reminderSnoozeCmd())
+	cmd.AddCommand(reminderSkipCmd())
+	cmd.AddCommand(reminderUnskipCmd())
 
 	return cmd
 }
@@ -149,6 +151,9 @@ func printReminderStatus(stateStore *state.State, name string) error {
 	fmt.Println()
 
 	fmt.Printf("Status:         %s\n", colorizeReminderState(rs.State))
+	if resume, ok := skipResume(reminderConfig.Schedule, rs.SkipUntil); ok {
+		fmt.Printf("Skipped:        resumes %s\n", formatTime(resume))
+	}
 	fmt.Printf("Last notified:  %s\n", formatTime(rs.FiredAt))
 	fmt.Printf("Next run:       %s\n", reminderNextRun(reminderConfig, rs))
 	fmt.Printf("Overdue count:  %d\n", rs.OverdueCount)

@@ -7,7 +7,7 @@ import (
 	"go.guillerg.dev/orbit/internal/state"
 )
 
-func TestTaskStatusString(t *testing.T) {
+func TestTaskRunStatus(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 
 	tests := []struct {
@@ -37,8 +37,8 @@ func TestTaskStatusString(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if got := taskStatusString(tc.ts, tc.attempts, tc.systemdFailed); got != tc.want {
-			t.Errorf("%s: taskStatusString(%+v, %d, %v) = %q, want %q", tc.name, tc.ts, tc.attempts, tc.systemdFailed, got, tc.want)
+		if got := taskRunStatus(tc.ts, tc.attempts, tc.systemdFailed); got != tc.want {
+			t.Errorf("%s: taskRunStatus(%+v, %d, %v) = %q, want %q", tc.name, tc.ts, tc.attempts, tc.systemdFailed, got, tc.want)
 		}
 	}
 }

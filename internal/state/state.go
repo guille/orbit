@@ -183,6 +183,9 @@ type TaskState struct {
 	FailedCycles int  `json:"failed_cycles,omitempty"`
 	RetryAttempt int  `json:"retry_attempt"`
 	Disabled     bool `json:"disabled,omitempty"`
+	// SkipUntil suppresses scheduled runs at or before this instant; the task
+	// resumes with the first occurrence after it. See 'orbit skip'.
+	SkipUntil *time.Time `json:"skip_until,omitempty"`
 }
 
 // ReminderStatus represents the current state of a reminder.
@@ -211,6 +214,9 @@ type ReminderState struct {
 	LastCheckExitCode *int           `json:"last_check_exit_code,omitempty"`
 	LastCheckAt       time.Time      `json:"last_check_at"`
 	Disabled          bool           `json:"disabled,omitempty"`
+	// SkipUntil suppresses scheduled firings at or before this instant; the
+	// reminder resumes with the first occurrence after it. See 'orbit skip'.
+	SkipUntil *time.Time `json:"skip_until,omitempty"`
 }
 
 // NewState creates a new state instance, loading existing state from disk if available.
@@ -282,6 +288,35 @@ func (s *State) initDefaults() {
 // Save writes the state to disk atomically and updates the sentinel file.
 // It uses flock to prevent concurrent orbit processes from clobbering each other.
 func (s *State) Save() error {
+	return s.save(nil)
+}
+
+// UpdateTaskState applies fn to the task's state as it is on disk at the
+// moment of writing, then saves. Long-running processes (the task runner)
+// must write this way: a whole-entry Save would clobber fields another
+// process changed meanwhile, such as a skip set while the task was running.
+func (s *State) UpdateTaskState(name string, fn func(*TaskState)) error {
+	return s.save(func() {
+		ts := s.data.Tasks[name]
+		fn(&ts)
+		s.data.Tasks[name] = ts
+		s.dirtyTasks[name] = true
+	})
+}
+
+// UpdateReminderState is UpdateTaskState for reminders.
+func (s *State) UpdateReminderState(name string, fn func(*ReminderState)) error {
+	return s.save(func() {
+		rs := s.data.Reminders[name]
+		fn(&rs)
+		s.data.Reminders[name] = rs
+		s.dirtyReminders[name] = true
+	})
+}
+
+// save merges in-memory changes over the on-disk state under the file lock,
+// runs mutate (if any) against that fresh merge, and writes the result.
+func (s *State) save(mutate func()) error {
 	// Acquire an exclusive file lock to prevent concurrent processes from
 	// interleaving read-modify-write cycles on the state file.
 	lockFile, err := os.OpenFile(s.filePath+".lock", os.O_CREATE|os.O_RDWR, 0644)
@@ -306,6 +341,9 @@ func (s *State) Save() error {
 	if err := s.reloadUnderLock(); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("reloading state under lock: %w", err)
+	}
+	if mutate != nil {
+		mutate()
 	}
 
 	// Compute pending count from the map for JSON serialization.

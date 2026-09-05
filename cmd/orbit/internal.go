@@ -42,6 +42,14 @@ func runInternalCmd() *cobra.Command {
 				return notAppliedErr(kindTask, name)
 			}
 
+			// A skipped run is neither a run nor a failure: it leaves every
+			// run-tracking field alone and exits 0 so systemd does not record
+			// a failed unit.
+			skipped, err := skipGate(stateStore, kindTask, name, taskConfig.Schedule, stateStore.GetTaskState(name).SkipUntil)
+			if err != nil || skipped {
+				return err
+			}
+
 			err = task.NewRunner(stateStore).Run(name, taskConfig)
 			if _, ok := errors.AsType[*task.FailedError](err); ok {
 				return exitCodeError{err: err, code: task.ExitTaskFailed}
@@ -69,6 +77,12 @@ func notifyInternalCmd() *cobra.Command {
 			reminderConfig, ok := stateStore.GetAppliedReminder(name)
 			if !ok {
 				return notAppliedErr(kindReminder, name)
+			}
+
+			// Gate before the check so a skipped cycle has no side effects.
+			skipped, err := skipGate(stateStore, kindReminder, name, reminderConfig.Schedule, stateStore.GetReminderState(name).SkipUntil)
+			if err != nil || skipped {
+				return err
 			}
 
 			h := reminder.NewHandler(stateStore)

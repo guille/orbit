@@ -25,6 +25,14 @@ func (m *mockState) SetReminderState(name string, rs state.ReminderState) {
 	m.reminders[name] = rs
 }
 
+func (m *mockState) UpdateReminderState(name string, fn func(*state.ReminderState)) error {
+	rs := m.reminders[name]
+	fn(&rs)
+	m.reminders[name] = rs
+	m.saved = true
+	return nil
+}
+
 func (m *mockState) Save() error {
 	m.saved = true
 	return nil

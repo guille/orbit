@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Systemctl abstracts systemctl command execution for testability.
@@ -224,66 +223,6 @@ func (m *Manager) VerifyUnits(paths ...string) (string, error) {
 	cmd := exec.Command("systemd-analyze", args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-// NextElapses returns the next trigger time of each given OnCalendar
-// expression, keyed by expression, resolved in a single `systemd-analyze
-// calendar` invocation. Expressions systemd cannot resolve are omitted.
-func (m *Manager) NextElapses(schedules []string) map[string]time.Time {
-	if len(schedules) == 0 {
-		return nil
-	}
-
-	args := append([]string{"calendar", "--iterations=1"}, schedules...)
-	// A rejected expression is reported on stderr and simply yields no block on
-	// stdout, so a non-zero exit says nothing about the ones that did resolve.
-	output, _ := exec.Command("systemd-analyze", args...).Output()
-
-	// systemd-analyze prints one property block per expression, separated by a
-	// blank line. "Original form" echoes the expression as given, and is
-	// omitted when the expression is already in normalized form.
-	elapses := make(map[string]time.Time, len(schedules))
-	for block := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n\n") {
-		var schedule string
-		var elapse time.Time
-		for line := range strings.SplitSeq(block, "\n") {
-			key, value, ok := strings.Cut(line, ":")
-			if !ok {
-				continue
-			}
-			value = strings.TrimSpace(value)
-			switch strings.TrimSpace(key) {
-			case "Original form":
-				schedule = value
-			case "Normalized form":
-				if schedule == "" {
-					schedule = value
-				}
-			case "Next elapse":
-				elapse, _ = parseCalendarTime(value)
-			}
-		}
-		if schedule != "" && !elapse.IsZero() {
-			elapses[schedule] = elapse
-		}
-	}
-
-	return elapses
-}
-
-// parseCalendarTime parses a systemd-analyze calendar timestamp
-// ("Day YYYY-MM-DD HH:MM:SS TZ").
-func parseCalendarTime(s string) (time.Time, error) {
-	for _, layout := range []string{
-		"Mon 2006-01-02 15:04:05 MST",
-		"Mon 2006-01-02 15:04:05 -0700",
-		"2006-01-02 15:04:05 MST",
-	} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
 }
 
 // LogOptions controls which journal entries StreamUnitLogs shows.

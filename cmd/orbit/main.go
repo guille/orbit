@@ -71,7 +71,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 
 	for _, name := range failed {
 		ts := stateStore.GetTaskState(name)
-		fmt.Printf("%s %s  %s %s\n", red("!"), name, taskStatusString(ts, applied.Tasks[name].Retry.Attempts, false), red(fmt.Sprintf("(exit %d)", ts.LastExitCode)))
+		fmt.Printf("%s %s  %s %s\n", red("!"), name, taskRunStatus(ts, applied.Tasks[name].Retry.Attempts, false), red(fmt.Sprintf("(exit %d)", ts.LastExitCode)))
 		fmt.Printf("    %s\n", dim("orbit logs "+name))
 	}
 	for _, name := range pending {
@@ -128,10 +128,11 @@ func nextUpcoming(stateStore *state.State, applied *state.AppliedConfig) (name, 
 
 	for n := range applied.Tasks {
 		cfg := applied.Tasks[n]
-		if cfg.Schedule == "" || stateStore.GetTaskState(n).Disabled {
+		ts := stateStore.GetTaskState(n)
+		if cfg.Schedule == "" || ts.Disabled {
 			continue
 		}
-		if t, resolved := nextRun(cfg.Schedule); resolved {
+		if t, resolved := nextFire(cfg.Schedule, ts.SkipUntil); resolved {
 			consider(n, t)
 		}
 	}
@@ -144,7 +145,7 @@ func nextUpcoming(stateStore *state.State, applied *state.AppliedConfig) (name, 
 			consider(n, *rs.SnoozedUntil)
 			continue
 		}
-		if t, resolved := nextRun(applied.Reminders[n].Schedule); resolved {
+		if t, resolved := nextFire(applied.Reminders[n].Schedule, rs.SkipUntil); resolved {
 			consider(n, t)
 		}
 	}
@@ -181,6 +182,8 @@ func main() {
 		rootLogsCmd(),
 		rootAckCmd(),
 		rootSnoozeCmd(),
+		rootSkipCmd(),
+		rootUnskipCmd(),
 		enableCmd(),
 		disableCmd(),
 	)

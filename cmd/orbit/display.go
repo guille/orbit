@@ -16,6 +16,7 @@ const (
 	cellNever    = "never"      // has not happened yet
 	cellManual   = "(manual)"   // runs only on demand
 	cellDisabled = "(disabled)" // suppressed by 'orbit disable'
+	cellSkipped  = "(skipped)"  // suppressed by 'orbit skip'; prefixed by the resume time
 )
 
 // Column headers. Listings use a subset in this order.
@@ -42,6 +43,9 @@ func taskNextRun(taskConfig state.AppliedTaskConfig, ts state.TaskState) string 
 	if ts.Disabled {
 		return dim(cellDisabled)
 	}
+	if resume, ok := skipResume(taskConfig.Schedule, ts.SkipUntil); ok {
+		return skippedCell(resume)
+	}
 	if taskConfig.Schedule == "" {
 		return dim(cellManual)
 	}
@@ -54,6 +58,9 @@ func reminderNextRun(reminderConfig state.AppliedReminderConfig, rs state.Remind
 	if rs.Disabled {
 		return dim(cellDisabled)
 	}
+	if resume, ok := skipResume(reminderConfig.Schedule, rs.SkipUntil); ok {
+		return skippedCell(resume)
+	}
 	if rs.State == state.StateSnoozed && rs.SnoozedUntil != nil && rs.SnoozedUntil.After(time.Now()) {
 		return formatTime(*rs.SnoozedUntil) + " (snoozed)"
 	}
@@ -63,12 +70,21 @@ func reminderNextRun(reminderConfig state.AppliedReminderConfig, rs state.Remind
 	return resolveNextRun(reminderConfig.Schedule)
 }
 
-// taskStatusString returns a colored display string for a task's current status.
-// attempts is the configured retry count, which tells an in-flight retry cycle
-// from an exhausted one. systemdFailed reports whether the task's last run
-// failed at the systemd level, covering failures the persisted state never
-// recorded.
-func taskStatusString(ts state.TaskState, attempts int, systemdFailed bool) string {
+// taskStatusString returns a colored display string for a task's current
+// status. An active skip reads as skipped even over a recorded failure: it is
+// what happens next that the listing answers.
+func taskStatusString(taskConfig state.AppliedTaskConfig, ts state.TaskState, systemdFailed bool) string {
+	if !ts.Disabled && isSkipped(taskConfig.Schedule, ts.SkipUntil) {
+		return dim("skipped")
+	}
+	return taskRunStatus(ts, taskConfig.Retry.Attempts, systemdFailed)
+}
+
+// taskRunStatus describes a task's last run. attempts is the configured retry
+// count, which tells an in-flight retry cycle from an exhausted one.
+// systemdFailed reports whether the task's last run failed at the systemd
+// level, covering failures the persisted state never recorded.
+func taskRunStatus(ts state.TaskState, attempts int, systemdFailed bool) string {
 	retrying := ts.RetryAttempt > 0 && ts.RetryAttempt < max(attempts, 1)
 	switch {
 	case ts.Disabled:
@@ -96,6 +112,9 @@ func reminderStatusString(reminderConfig state.AppliedReminderConfig, rs state.R
 	if rs.Disabled {
 		return dim("disabled")
 	}
+	if isSkipped(reminderConfig.Schedule, rs.SkipUntil) {
+		return dim("skipped")
+	}
 
 	var notes []string
 	if rs.OverdueCount > 1 && reminder.IsActionable(rs) {
@@ -110,6 +129,21 @@ func reminderStatusString(reminderConfig state.AppliedReminderConfig, rs state.R
 		display += fmt.Sprintf(" (%s)", strings.Join(notes, ", "))
 	}
 	return display
+}
+
+// skippedCell renders the NEXT RUN cell of a skipped entry. A zero resume
+// means the schedule could not be resolved, so no time is shown.
+func skippedCell(resume time.Time) string {
+	if resume.IsZero() {
+		return dim(cellSkipped)
+	}
+	return formatTime(resume) + " " + cellSkipped
+}
+
+// isSkipped reports whether an entry is under an active skip window.
+func isSkipped(schedule string, skipUntil *time.Time) bool {
+	_, ok := skipResume(schedule, skipUntil)
+	return ok
 }
 
 // lastCheckedString reports how recently a gating check ran, but only while that check

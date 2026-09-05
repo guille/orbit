@@ -351,7 +351,7 @@ func diagnoseTask(ts state.TaskState, attempts int, st systemd.UnitStatus) (task
 	}
 
 	if ts.ConsecutiveFailures > 0 {
-		return taskDiagnosis{false, fmt.Sprintf("%s, exit %d", taskStatusString(ts, attempts, false), ts.LastExitCode)}, true
+		return taskDiagnosis{false, fmt.Sprintf("%s, exit %d", taskRunStatus(ts, attempts, false), ts.LastExitCode)}, true
 	}
 	return taskDiagnosis{}, false
 }
