@@ -43,7 +43,7 @@ func listCmd() *cobra.Command {
 				rows = append(rows, row{name: name, kind: kindTask, cells: []string{
 					name,
 					string(kindTask),
-					orNone(taskConfig.Schedule),
+					orNone(taskConfig.Schedule.String()),
 					formatTime(ts.LastRun),
 					taskNextRun(taskConfig, ts),
 					taskStatusString(taskConfig, ts, failed[name].Failed()),
@@ -55,7 +55,7 @@ func listCmd() *cobra.Command {
 				rows = append(rows, row{name: name, kind: kindReminder, cells: []string{
 					name,
 					string(kindReminder),
-					orNone(reminderConfig.Schedule),
+					orNone(reminderConfig.Schedule.String()),
 					formatTime(rs.FiredAt),
 					reminderNextRun(reminderConfig, rs),
 					reminderStatusString(reminderConfig, rs),

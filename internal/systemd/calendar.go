@@ -3,45 +3,51 @@ package systemd
 import (
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// NextElapses returns the next trigger time of each given OnCalendar
-// expression, keyed by expression, resolved in a single `systemd-analyze
-// calendar` invocation. Expressions systemd cannot resolve are omitted.
-func (m *Manager) NextElapses(schedules []string) map[string]time.Time {
-	all, _ := analyzeCalendar(schedules, 1, time.Time{})
+// NextElapses returns the first trigger time of each given OnCalendar
+// expression strictly after base (now, if zero), keyed by expression, resolved
+// in a single `systemd-analyze calendar` invocation. An expression with nothing
+// left after base maps to the zero time; one systemd rejected is absent. A
+// non-nil error means systemd-analyze could not answer at all.
+func (m *Manager) NextElapses(schedules []string, base time.Time) (map[string]time.Time, error) {
+	all, err := analyzeCalendar(schedules, 1, base)
 	elapses := make(map[string]time.Time, len(all))
 	for schedule, times := range all {
-		elapses[schedule] = times[0]
+		var t time.Time
+		if len(times) > 0 {
+			t = times[0]
+		}
+		elapses[schedule] = t
 	}
-	return elapses
+	return elapses, err
 }
 
-// Occurrences returns up to n upcoming trigger times of an OnCalendar
-// expression. Fewer than n means the schedule runs out before then; none means
-// it cannot be resolved or has already ended. The error reports that
+// Occurrences returns up to n upcoming trigger times of a set of OnCalendar
+// expressions, merged the way a timer with one OnCalendar= line per expression
+// fires. Fewer than n means the schedule runs out before then; none means it
+// cannot be resolved or has already ended. The error reports that
 // systemd-analyze itself could not answer, which is distinct from "none".
-func (m *Manager) Occurrences(schedule string, n int) ([]time.Time, error) {
-	all, err := analyzeCalendar([]string{schedule}, n, time.Time{})
-	return all[schedule], err
-}
-
-// NextAfter returns the first trigger time of an OnCalendar expression strictly
-// after base (now, if zero). ok is false when nothing is scheduled after base;
-// a non-nil error means systemd-analyze could not answer.
-func (m *Manager) NextAfter(schedule string, base time.Time) (t time.Time, ok bool, err error) {
-	all, err := analyzeCalendar([]string{schedule}, 1, base)
+func (m *Manager) Occurrences(schedules []string, n int) ([]time.Time, error) {
+	all, err := analyzeCalendar(schedules, n, time.Time{})
 	if err != nil {
-		return time.Time{}, false, err
+		return nil, err
 	}
-	times := all[schedule]
-	if len(times) == 0 {
-		return time.Time{}, false, nil
+	// The first n of the union lie within the first n of each member.
+	var merged []time.Time
+	for _, times := range all {
+		merged = append(merged, times...)
 	}
-	return times[0], true, nil
+	slices.SortFunc(merged, time.Time.Compare)
+	merged = slices.CompactFunc(merged, time.Time.Equal)
+	if len(merged) > n {
+		merged = merged[:n]
+	}
+	return merged, nil
 }
 
 // ResolveTime parses a user-supplied point in time. It accepts a Go duration
@@ -106,10 +112,10 @@ func parseEpoch(s string) (time.Time, error) {
 // analyzeCalendar runs `systemd-analyze calendar` once for every expression and
 // returns their upcoming trigger times, keyed by expression. A zero base means
 // now; otherwise triggers are strictly after base. Expressions systemd cannot
-// resolve, or that have no trigger left, are omitted. An error is returned only
-// when the tool answered for none of them (not installed, failed to start, or
-// rejected the whole invocation), so callers can tell that apart from a
-// schedule with nothing left.
+// resolve are omitted; those with no trigger left are present with no times.
+// An error is returned only when the tool answered for none of them (not
+// installed, failed to start, or rejected the whole invocation), so callers
+// can tell that apart from a schedule with nothing left.
 func analyzeCalendar(schedules []string, iterations int, base time.Time) (map[string][]time.Time, error) {
 	if len(schedules) == 0 {
 		return nil, nil
@@ -153,10 +159,8 @@ func analyzeCalendar(schedules []string, iterations int, base time.Time) (map[st
 				}
 			}
 		}
-		if schedule != "" && len(times) > 0 {
-			result[schedule] = times
-		}
 		if schedule != "" {
+			result[schedule] = times
 			answered = true
 		}
 	}

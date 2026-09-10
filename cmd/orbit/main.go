@@ -129,7 +129,7 @@ func nextUpcoming(stateStore *state.State, applied *state.AppliedConfig) (name, 
 	for n := range applied.Tasks {
 		cfg := applied.Tasks[n]
 		ts := stateStore.GetTaskState(n)
-		if cfg.Schedule == "" || ts.Disabled {
+		if cfg.Schedule.IsZero() || ts.Disabled {
 			continue
 		}
 		if t, resolved := nextFire(cfg.Schedule, ts.SkipUntil); resolved {

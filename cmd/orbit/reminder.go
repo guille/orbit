@@ -89,7 +89,7 @@ func printPendingReminders(applied *state.AppliedConfig, stateStore *state.State
 func printReminderTable(applied *state.AppliedConfig, stateStore *state.State, names []string) {
 	schedules := make([]string, 0, len(names))
 	for _, name := range names {
-		schedules = append(schedules, applied.Reminders[name].Schedule)
+		schedules = append(schedules, applied.Reminders[name].Schedule...)
 	}
 	primeNextRuns(schedules)
 
@@ -100,7 +100,7 @@ func printReminderTable(applied *state.AppliedConfig, stateStore *state.State, n
 
 		tbl.add(
 			name,
-			orNone(reminderConfig.Schedule),
+			orNone(reminderConfig.Schedule.String()),
 			formatTime(rs.FiredAt),
 			reminderNextRun(reminderConfig, rs),
 			reminderStatusString(reminderConfig, rs),
@@ -145,7 +145,7 @@ func printReminderStatus(stateStore *state.State, name string) error {
 	fmt.Printf("Reminder:       %s\n", name)
 	fmt.Printf("Message:        %s\n", reminderConfig.Message)
 	fmt.Printf("Command:        %s\n", orNone(reminderConfig.Command))
-	fmt.Printf("Schedule:       %s\n", orNone(reminderConfig.Schedule))
+	fmt.Printf("Schedule:       %s\n", orNone(reminderConfig.Schedule.String()))
 	fmt.Printf("Check:          %s\n", orNone(reminderConfig.Check))
 	fmt.Printf("Snooze default: %s\n", orNone(reminderConfig.Snooze))
 	fmt.Println()

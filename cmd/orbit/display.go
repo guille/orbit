@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
@@ -46,7 +47,7 @@ func taskNextRun(taskConfig state.AppliedTaskConfig, ts state.TaskState) string 
 	if resume, ok := skipResume(taskConfig.Schedule, ts.SkipUntil); ok {
 		return skippedCell(resume)
 	}
-	if taskConfig.Schedule == "" {
+	if taskConfig.Schedule.IsZero() {
 		return dim(cellManual)
 	}
 	return resolveNextRun(taskConfig.Schedule)
@@ -64,7 +65,7 @@ func reminderNextRun(reminderConfig state.AppliedReminderConfig, rs state.Remind
 	if rs.State == state.StateSnoozed && rs.SnoozedUntil != nil && rs.SnoozedUntil.After(time.Now()) {
 		return formatTime(*rs.SnoozedUntil) + " (snoozed)"
 	}
-	if reminderConfig.Schedule == "" {
+	if reminderConfig.Schedule.IsZero() {
 		return dim(cellManual)
 	}
 	return resolveNextRun(reminderConfig.Schedule)
@@ -141,7 +142,7 @@ func skippedCell(resume time.Time) string {
 }
 
 // isSkipped reports whether an entry is under an active skip window.
-func isSkipped(schedule string, skipUntil *time.Time) bool {
+func isSkipped(schedule config.Schedule, skipUntil *time.Time) bool {
 	_, ok := skipResume(schedule, skipUntil)
 	return ok
 }

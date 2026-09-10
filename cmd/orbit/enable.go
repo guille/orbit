@@ -153,7 +153,7 @@ func runEnableDisable(args []string, all bool, disable bool) error {
 				changed++
 
 				// A manual task has no timer to stop or start.
-				if applied.Tasks[name].Schedule != "" {
+				if !applied.Tasks[name].Schedule.IsZero() {
 					timerName := systemd.TaskTimerName(name)
 					if disable {
 						toStop = append(toStop, timerName)

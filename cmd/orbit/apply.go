@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -265,7 +266,7 @@ func diffConfig(cfg *config.Config, applied *state.AppliedConfig) configChangeSe
 
 func taskChanged(old state.AppliedTaskConfig, new config.TaskConfig) bool {
 	return old.Command != new.Command ||
-		old.Schedule != new.Schedule ||
+		!slices.Equal(old.Schedule, new.Schedule) ||
 		old.OnMissed != new.OnMissed ||
 		old.Retry.Attempts != new.Retry.GetAttempts() ||
 		old.Retry.Delay != new.Retry.Delay ||
@@ -275,7 +276,7 @@ func taskChanged(old state.AppliedTaskConfig, new config.TaskConfig) bool {
 
 func reminderChanged(old state.AppliedReminderConfig, new config.ReminderConfig) bool {
 	return old.Command != new.Command ||
-		old.Schedule != new.Schedule ||
+		!slices.Equal(old.Schedule, new.Schedule) ||
 		old.Message != new.Message ||
 		old.Snooze != new.Snooze ||
 		old.Check != new.Check
@@ -352,8 +353,8 @@ func unitsToRemove(cs configChangeSet) (units []systemd.Unit, removed []configCh
 			)
 			removed = append(removed, c)
 		case c.action == actionUpdate && c.kind == kindTask &&
-			c.oldTask != nil && c.oldTask.Schedule != "" &&
-			c.newTask != nil && c.newTask.Schedule == "":
+			c.oldTask != nil && !c.oldTask.Schedule.IsZero() &&
+			c.newTask != nil && c.newTask.Schedule.IsZero():
 			units = append(units, systemd.Unit{Name: systemd.TaskTimerName(c.name)})
 		}
 	}
@@ -379,14 +380,14 @@ func clearSkipsOnScheduleChange(cs configChangeSet, stateStore *state.State) []s
 		switch c.kind {
 		case kindTask:
 			ts := stateStore.GetTaskState(c.name)
-			if ts.SkipUntil != nil && c.oldTask.Schedule != c.newTask.Schedule {
+			if ts.SkipUntil != nil && !slices.Equal(c.oldTask.Schedule, c.newTask.Schedule) {
 				ts.SkipUntil = nil
 				stateStore.SetTaskState(c.name, ts)
 				names = append(names, c.name)
 			}
 		case kindReminder:
 			rs := stateStore.GetReminderState(c.name)
-			if rs.SkipUntil != nil && c.oldReminder.Schedule != c.newReminder.Schedule {
+			if rs.SkipUntil != nil && !slices.Equal(c.oldReminder.Schedule, c.newReminder.Schedule) {
 				rs.SkipUntil = nil
 				stateStore.SetReminderState(c.name, rs)
 				names = append(names, c.name)
@@ -407,7 +408,7 @@ func timersToDisable(cfg *config.Config, sr stateReader, cs configChangeSet, for
 	var names []string
 	for name, t := range cfg.Tasks {
 		// A manual task has no timer to disable.
-		if t.Schedule == "" {
+		if t.Schedule.IsZero() {
 			continue
 		}
 		if (force || changedTasks[name]) && sr.GetTaskState(name).Disabled {
@@ -470,13 +471,13 @@ func printNewConfigSummary(c configChange) {
 	switch c.kind {
 	case kindTask:
 		t := c.newTask
-		if t.Schedule != "" {
+		if !t.Schedule.IsZero() {
 			fmt.Printf("      schedule:  %s\n", t.Schedule)
 		} else {
 			fmt.Printf("      schedule:  (manual)\n")
 		}
 		fmt.Printf("      command:   %s\n", t.Command)
-		if t.Schedule != "" {
+		if !t.Schedule.IsZero() {
 			fmt.Printf("      on_missed: %s\n", t.OnMissed)
 		}
 		if t.Retry.GetAttempts() > 0 {
@@ -511,7 +512,7 @@ func printConfigDiff(c configChange) {
 	case kindTask:
 		old, new := c.oldTask, c.newTask
 		diffField("command", old.Command, new.Command)
-		diffField("schedule", old.Schedule, new.Schedule)
+		diffField("schedule", old.Schedule.String(), new.Schedule.String())
 		diffField("on_missed", string(old.OnMissed), string(new.OnMissed))
 		if old.Retry.Attempts != new.Retry.GetAttempts() {
 			fmt.Printf("      %s %s %s\n",
@@ -525,7 +526,7 @@ func printConfigDiff(c configChange) {
 	case kindReminder:
 		old, new := c.oldReminder, c.newReminder
 		diffField("command", old.Command, new.Command)
-		diffField("schedule", old.Schedule, new.Schedule)
+		diffField("schedule", old.Schedule.String(), new.Schedule.String())
 		diffField("message", old.Message, new.Message)
 		diffField("check", old.Check, new.Check)
 		diffField("snooze", old.Snooze, new.Snooze)

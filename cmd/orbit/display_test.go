@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/state"
 )
 
@@ -44,7 +45,7 @@ func TestTaskRunStatus(t *testing.T) {
 }
 
 func TestReminderStatusString(t *testing.T) {
-	ungated := state.AppliedReminderConfig{Schedule: "daily"}
+	ungated := state.AppliedReminderConfig{Schedule: config.Schedule{"daily"}}
 
 	tests := []struct {
 		name string
@@ -70,7 +71,7 @@ func TestReminderStatusString(t *testing.T) {
 }
 
 func TestReminderStatusStringCheckNote(t *testing.T) {
-	gated := state.AppliedReminderConfig{Schedule: "daily", Check: "test -f /tmp/x"}
+	gated := state.AppliedReminderConfig{Schedule: config.Schedule{"daily"}, Check: "test -f /tmp/x"}
 	checkedAt := time.Now().Add(-4*time.Hour - 30*time.Second)
 	failed, passed := 1, 0
 
@@ -111,7 +112,7 @@ func TestReminderStatusStringCheckNote(t *testing.T) {
 		// Stale check state must not leak once the check is removed from config.
 		{
 			"check removed from config",
-			state.AppliedReminderConfig{Schedule: "daily"},
+			state.AppliedReminderConfig{Schedule: config.Schedule{"daily"}},
 			state.ReminderState{State: state.StateAcknowledged, LastCheckExitCode: &failed, LastCheckAt: checkedAt},
 			"acknowledged",
 		},
@@ -134,7 +135,7 @@ func TestReminderNextRunPrefersActiveSnooze(t *testing.T) {
 	// A half-minute of slack keeps the truncating relative formatter off a boundary.
 	future := time.Now().Add(90*time.Minute + 30*time.Second)
 	past := time.Now().Add(-time.Hour)
-	cfg := state.AppliedReminderConfig{Schedule: "daily"}
+	cfg := state.AppliedReminderConfig{Schedule: config.Schedule{"daily"}}
 
 	tests := []struct {
 		name string
@@ -169,7 +170,7 @@ func TestTaskNextRun(t *testing.T) {
 		want string
 	}{
 		// Disabled wins over the schedule: a disabled task has no next run.
-		{"disabled with schedule", state.AppliedTaskConfig{Schedule: "daily"}, state.TaskState{Disabled: true}, cellDisabled},
+		{"disabled with schedule", state.AppliedTaskConfig{Schedule: config.Schedule{"daily"}}, state.TaskState{Disabled: true}, cellDisabled},
 		{"no schedule", state.AppliedTaskConfig{}, state.TaskState{}, cellManual},
 	}
 

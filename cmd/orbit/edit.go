@@ -47,7 +47,8 @@ func editCmd() *cobra.Command {
 			if _, err := os.Stat(configPath); os.IsNotExist(err) {
 				stub := []byte(`#:schema ./schema.json
 # Orbit configuration
-# Schedule values use systemd OnCalendar syntax.
+# Schedule values use systemd OnCalendar syntax; a list means the union of them:
+#   schedule = ["Mon..Fri 09:00", "Mon..Fri 13:30"]
 # See: https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events
 # Test with: systemd-analyze calendar "daily"
 

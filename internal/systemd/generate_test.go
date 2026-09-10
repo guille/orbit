@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateTaskUnits(t *testing.T) {
-	units, err := GenerateTaskUnits("test-task", "daily", config.OnMissedRunOnce, "orbit")
+	units, err := GenerateTaskUnits("test-task", []string{"daily"}, config.OnMissedRunOnce, "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestGenerateTaskUnits(t *testing.T) {
 }
 
 func TestGenerateTaskUnits_NoSchedule(t *testing.T) {
-	units, err := GenerateTaskUnits("deploy", "", "", "orbit")
+	units, err := GenerateTaskUnits("deploy", nil, "", "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestGenerateTaskUnits_OnMissedPersistent(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		units, err := GenerateTaskUnits("test", "daily", tc.onMissed, "orbit")
+		units, err := GenerateTaskUnits("test", []string{"daily"}, tc.onMissed, "orbit")
 		if err != nil {
 			t.Fatalf("Unexpected error for on_missed=%s: %v", tc.onMissed, err)
 		}
@@ -85,7 +85,7 @@ func TestGenerateTaskUnits_OnMissedPersistent(t *testing.T) {
 }
 
 func TestGenerateReminderUnits(t *testing.T) {
-	units, err := GenerateReminderUnits("test-reminder", "hourly", "orbit")
+	units, err := GenerateReminderUnits("test-reminder", []string{"hourly"}, "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestGenerateSnoozeTimer(t *testing.T) {
 }
 
 func TestGenerateReminderUnits_NoCommand(t *testing.T) {
-	units, err := GenerateReminderUnits("test-reminder", "hourly", "orbit")
+	units, err := GenerateReminderUnits("test-reminder", []string{"hourly"}, "orbit")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -167,4 +167,21 @@ func assertContains(t *testing.T, s, substr string) {
 	if !strings.Contains(s, substr) {
 		t.Fatalf("Expected content to contain %q, got:\n%s", substr, s)
 	}
+}
+
+func TestGenerateTaskUnits_MultipleSchedules(t *testing.T) {
+	units, err := GenerateTaskUnits("standup", []string{"Mon..Fri 09:00", "Mon..Fri 13:30"}, config.OnMissedSkip, "orbit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(units) != 2 {
+		t.Fatalf("got %d units, want 2", len(units))
+	}
+	assertContains(t, units[1].Content, "[Timer]\nOnCalendar=Mon..Fri 09:00\nOnCalendar=Mon..Fri 13:30\nPersistent=false\n")
+
+	units, err = GenerateReminderUnits("r", []string{"daily", "Sat 10:00"}, "orbit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, units[1].Content, "[Timer]\nOnCalendar=daily\nOnCalendar=Sat 10:00\nPersistent=true\n")
 }

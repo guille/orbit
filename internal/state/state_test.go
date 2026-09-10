@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"go.guillerg.dev/orbit/internal/config"
 )
 
 func TestState_LoadSave(t *testing.T) {
@@ -684,7 +688,7 @@ func TestAppliedConfig_RoundTrip(t *testing.T) {
 		Tasks: map[string]AppliedTaskConfig{
 			"backup": {
 				Command:  "rsync -av ~/Documents /mnt/backup/",
-				Schedule: "daily",
+				Schedule: config.Schedule{"daily"},
 				OnMissed: "run_once",
 				Retry:    AppliedRetryConfig{Attempts: 3, Delay: "5m"},
 			},
@@ -695,12 +699,12 @@ func TestAppliedConfig_RoundTrip(t *testing.T) {
 		Reminders: map[string]AppliedReminderConfig{
 			"weekly-review": {
 				Command:  "echo review",
-				Schedule: "weekly",
+				Schedule: config.Schedule{"weekly"},
 				Message:  "Time for your weekly review",
 				Snooze:   "2h",
 			},
 			"check-pacnew": {
-				Schedule: "daily",
+				Schedule: config.Schedule{"daily"},
 				Message:  "There are pacnew files!",
 				Check:    "locate .pacnew",
 			},
@@ -785,7 +789,7 @@ func TestAppliedConfig_Overwrite(t *testing.T) {
 	// Set initial config
 	s.SetAppliedConfig(&AppliedConfig{
 		Tasks: map[string]AppliedTaskConfig{
-			"old-task": {Command: "echo old", Schedule: "daily"},
+			"old-task": {Command: "echo old", Schedule: config.Schedule{"daily"}},
 		},
 	})
 	if err := s.Save(); err != nil {
@@ -799,7 +803,7 @@ func TestAppliedConfig_Overwrite(t *testing.T) {
 	}
 	s2.SetAppliedConfig(&AppliedConfig{
 		Tasks: map[string]AppliedTaskConfig{
-			"new-task": {Command: "echo new", Schedule: "weekly"},
+			"new-task": {Command: "echo new", Schedule: config.Schedule{"weekly"}},
 		},
 	})
 	if err := s2.Save(); err != nil {
@@ -818,7 +822,7 @@ func TestAppliedConfig_Overwrite(t *testing.T) {
 	if _, ok := ac.Tasks["new-task"]; !ok {
 		t.Fatal("new-task should exist after overwrite")
 	}
-	if ac.Tasks["new-task"].Schedule != "weekly" {
+	if ac.Tasks["new-task"].Schedule.String() != "weekly" {
 		t.Errorf("expected weekly, got %s", ac.Tasks["new-task"].Schedule)
 	}
 }
@@ -871,5 +875,61 @@ func TestAppliedConfig_Names(t *testing.T) {
 	var nilConfig *AppliedConfig
 	if nilConfig.Names() != nil || nilConfig.TaskNames() != nil || nilConfig.ReminderNames() != nil {
 		t.Error("nil config should return nil name slices")
+	}
+}
+
+func TestAppliedConfig_ScheduleJSONCompat(t *testing.T) {
+	dir := t.TempDir()
+	// A state file written before schedules could be lists.
+	old := `{"tasks":{},"reminders":{},"pending":0,"applied_config":{"orbit_bin":"orbit","tasks":{"a":{"command":"echo","schedule":"daily","on_missed":"run_once","retry":{"attempts":3,"delay":"5m"}},"m":{"command":"echo","schedule":"","on_missed":"","retry":{"attempts":3,"delay":"5m"}}},"reminders":{}}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ac := s.GetAppliedConfig()
+	if got := ac.Tasks["a"].Schedule; len(got) != 1 || got[0] != "daily" {
+		t.Fatalf("a.schedule = %v", got)
+	}
+	if got := ac.Tasks["m"].Schedule; !got.IsZero() {
+		t.Fatalf("m.schedule = %v, want empty", got)
+	}
+
+	// Single and empty schedules marshal back to bare strings; lists stay lists.
+	ac.Tasks["l"] = AppliedTaskConfig{Command: "echo", Schedule: config.Schedule{"a", "b"}}
+	s.SetAppliedConfig(ac)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"schedule": "daily"`, `"schedule": ""`, "\"schedule\": [\n          \"a\",\n          \"b\"\n        ]"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("state file lacks %q:\n%s", want, data)
+		}
+	}
+}
+
+func TestAppliedConfig_SchedulesFlatten(t *testing.T) {
+	ac := &AppliedConfig{
+		Tasks: map[string]AppliedTaskConfig{
+			"two":    {Schedule: config.Schedule{"a", "b"}},
+			"manual": {},
+		},
+		Reminders: map[string]AppliedReminderConfig{
+			"r": {Schedule: config.Schedule{"c"}},
+		},
+	}
+	got := ac.Schedules()
+	sort.Strings(got)
+	if strings.Join(got, ",") != "a,b,c" {
+		t.Errorf("Schedules() = %v, want a,b,c", got)
+	}
+	if got := ac.TaskSchedules(); len(got) != 2 {
+		t.Errorf("TaskSchedules() = %v", got)
 	}
 }

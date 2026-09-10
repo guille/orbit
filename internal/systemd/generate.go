@@ -32,8 +32,8 @@ var timerTemplate = template.Must(template.New("timer").Parse(`[Unit]
 Description=Timer for orbit task {{.Name}}
 
 [Timer]
-OnCalendar={{.Schedule}}
-Persistent={{.Persistent}}
+{{range .Schedule}}OnCalendar={{.}}
+{{end}}Persistent={{.Persistent}}
 
 [Install]
 WantedBy=timers.target
@@ -53,8 +53,8 @@ var reminderTimerTemplate = template.Must(template.New("reminder-timer").Parse(`
 Description=Timer for orbit reminder {{.Name}}
 
 [Timer]
-OnCalendar={{.Schedule}}
-Persistent=true
+{{range .Schedule}}OnCalendar={{.}}
+{{end}}Persistent=true
 
 [Install]
 WantedBy=timers.target
@@ -73,9 +73,9 @@ WantedBy=timers.target
 `))
 
 // GenerateTaskUnits generates units for a task.
-// If schedule is empty, only a service unit is generated (no timer).
-// Otherwise, both a service and timer unit are generated.
-func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, orbitBin string) ([]Unit, error) {
+// Without a schedule only a service unit is generated (no timer). Otherwise the
+// timer fires on the union of the given OnCalendar expressions.
+func GenerateTaskUnits(name string, schedule []string, onMissed config.OnMissedPolicy, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
 		Name             string
 		SyslogIdentifier string
@@ -95,7 +95,7 @@ func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, or
 		{Name: TaskServiceName(name), Content: serviceBuf.String()},
 	}
 
-	if schedule == "" {
+	if len(schedule) == 0 {
 		return units, nil
 	}
 
@@ -106,7 +106,7 @@ func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, or
 
 	timerData := struct {
 		Name       string
-		Schedule   string
+		Schedule   []string
 		Persistent string
 	}{
 		Name:       name,
@@ -124,8 +124,8 @@ func GenerateTaskUnits(name, schedule string, onMissed config.OnMissedPolicy, or
 }
 
 // GenerateReminderUnits generates service and timer units for a reminder.
-// schedule is a systemd OnCalendar expression.
-func GenerateReminderUnits(name, schedule, orbitBin string) ([]Unit, error) {
+// The timer fires on the union of the given OnCalendar expressions.
+func GenerateReminderUnits(name string, schedule []string, orbitBin string) ([]Unit, error) {
 	serviceData := struct {
 		Name             string
 		SyslogIdentifier string
@@ -143,7 +143,7 @@ func GenerateReminderUnits(name, schedule, orbitBin string) ([]Unit, error) {
 
 	timerData := struct {
 		Name     string
-		Schedule string
+		Schedule []string
 	}{
 		Name:     name,
 		Schedule: schedule,

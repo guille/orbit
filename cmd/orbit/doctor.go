@@ -265,7 +265,7 @@ func snapshotUnits(applied *state.AppliedConfig) unitSnapshot {
 	var units []string
 	for name, cfg := range applied.Tasks {
 		units = append(units, systemd.TaskServiceName(name))
-		if cfg.Schedule != "" {
+		if !cfg.Schedule.IsZero() {
 			units = append(units, systemd.TaskTimerName(name))
 		}
 	}
@@ -476,7 +476,7 @@ func checkTimerStates(applied *state.AppliedConfig, stateStore *state.State, sna
 
 	var timerNames []string
 	for name, cfg := range applied.Tasks {
-		if cfg.Schedule == "" {
+		if cfg.Schedule.IsZero() {
 			continue
 		}
 		ts := stateStore.GetTaskState(name)
@@ -574,7 +574,7 @@ func checkDisabledUnits(applied *state.AppliedConfig, stateStore *state.State, s
 		}
 		disabledTasks++
 		// A manual task has no timer to check.
-		if cfg.Schedule != "" {
+		if !cfg.Schedule.IsZero() {
 			timers = append(timers, systemd.TaskTimerName(name))
 		}
 	}

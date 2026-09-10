@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 )
@@ -28,7 +29,7 @@ func jan2030(day int) time.Time {
 func TestPlanSkipNext(t *testing.T) {
 	requireSystemdAnalyze(t)
 	m := systemd.NewManager()
-	entry := skipEntry{kind: kindTask, name: "t", schedule: fiveDays}
+	entry := skipEntry{kind: kindTask, name: "t", schedule: config.Schedule{fiveDays}}
 
 	tests := []struct {
 		n          int
@@ -59,11 +60,11 @@ func TestPlanSkipNext(t *testing.T) {
 		}
 	}
 
-	oneShot := skipEntry{kind: kindReminder, name: "r", schedule: "2030-01-01 09:00"}
+	oneShot := skipEntry{kind: kindReminder, name: "r", schedule: config.Schedule{"2030-01-01 09:00"}}
 	if _, err := planSkipNext(m, oneShot, 1); err == nil || !strings.Contains(err.Error(), "only once more") {
 		t.Errorf("one-shot: err = %v", err)
 	}
-	ended := skipEntry{kind: kindReminder, name: "r", schedule: "2020-01-01 09:00"}
+	ended := skipEntry{kind: kindReminder, name: "r", schedule: config.Schedule{"2020-01-01 09:00"}}
 	if _, err := planSkipNext(m, ended, 1); err == nil || !strings.Contains(err.Error(), "nothing scheduled") {
 		t.Errorf("ended: err = %v", err)
 	}
@@ -72,7 +73,7 @@ func TestPlanSkipNext(t *testing.T) {
 func TestPlanSkipUntil(t *testing.T) {
 	requireSystemdAnalyze(t)
 	m := systemd.NewManager()
-	entry := skipEntry{kind: kindTask, name: "t", schedule: fiveDays}
+	entry := skipEntry{kind: kindTask, name: "t", schedule: config.Schedule{fiveDays}}
 
 	tests := []struct {
 		name       string
@@ -109,7 +110,7 @@ func TestPlanSkipUntil(t *testing.T) {
 	}
 
 	t.Run("count saturates", func(t *testing.T) {
-		daily := skipEntry{kind: kindTask, name: "t", schedule: "daily"}
+		daily := skipEntry{kind: kindTask, name: "t", schedule: config.Schedule{"daily"}}
 		plan, err := planSkipUntil(m, daily, time.Now().Add(200*24*time.Hour))
 		if err != nil {
 			t.Fatal(err)
@@ -129,19 +130,20 @@ func TestSkipResume(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		schedule  string
+		schedule  config.Schedule
 		skipUntil *time.Time
 		active    bool
 		resume    time.Time
 	}{
-		{"no skip", fiveDays, nil, false, time.Time{}},
-		{"zero instant from foreign state reads as absent", fiveDays, &zero, false, time.Time{}},
-		{"manual entry", "", &first, false, time.Time{}},
-		{"active", fiveDays, &first, true, jan2030(2)},
+		{"no skip", config.Schedule{fiveDays}, nil, false, time.Time{}},
+		{"zero instant from foreign state reads as absent", config.Schedule{fiveDays}, &zero, false, time.Time{}},
+		{"manual entry", nil, &first, false, time.Time{}},
+		{"active", config.Schedule{fiveDays}, &first, true, jan2030(2)},
+		{"earliest member wins", config.Schedule{"2030-01-01..05 15:00", fiveDays}, &first, true, jan2030(1).Add(6 * time.Hour)},
 		// A catch-up start long after the skipped occurrence is still inside
 		// the window as long as the next occurrence has not come.
-		{"expired: resume point has passed", "daily", &threeDaysAgo, false, time.Time{}},
-		{"schedule ended within window", fiveDays, &last, false, time.Time{}},
+		{"expired: resume point has passed", config.Schedule{"daily"}, &threeDaysAgo, false, time.Time{}},
+		{"schedule ended within window", config.Schedule{fiveDays}, &last, false, time.Time{}},
 	}
 	for _, tc := range tests {
 		resume, active := skipResume(tc.schedule, tc.skipUntil)
@@ -154,8 +156,8 @@ func TestSkipResume(t *testing.T) {
 func TestSkippedDisplay(t *testing.T) {
 	requireSystemdAnalyze(t)
 	until := jan2030(1)
-	taskConfig := state.AppliedTaskConfig{Schedule: fiveDays, Retry: state.AppliedRetryConfig{Attempts: 3}}
-	reminderConfig := state.AppliedReminderConfig{Schedule: fiveDays}
+	taskConfig := state.AppliedTaskConfig{Schedule: config.Schedule{fiveDays}, Retry: state.AppliedRetryConfig{Attempts: 3}}
+	reminderConfig := state.AppliedReminderConfig{Schedule: config.Schedule{fiveDays}}
 
 	// Skip wins over a recorded failure; disabled wins over skip.
 	failedAndSkipped := state.TaskState{FailedCycles: 2, ConsecutiveFailures: 6, RetryAttempt: 3, SkipUntil: &until}
@@ -178,7 +180,7 @@ func TestSkippedDisplay(t *testing.T) {
 
 	// An expired skip reads as absent.
 	old := time.Now().Add(-72 * time.Hour)
-	if got := reminderStatusString(state.AppliedReminderConfig{Schedule: "daily"}, state.ReminderState{State: state.StateAcknowledged, SkipUntil: &old}); got != "acknowledged" {
+	if got := reminderStatusString(state.AppliedReminderConfig{Schedule: config.Schedule{"daily"}}, state.ReminderState{State: state.StateAcknowledged, SkipUntil: &old}); got != "acknowledged" {
 		t.Errorf("expired skip = %q, want acknowledged", got)
 	}
 }
@@ -188,7 +190,7 @@ func TestSkipResumeFailsClosed(t *testing.T) {
 	// must hold rather than let the run through and erase itself.
 	t.Setenv("PATH", t.TempDir())
 	until := time.Now().Add(-time.Hour)
-	resume, active := skipResume("*-*-* 03:17:19", &until)
+	resume, active := skipResume(config.Schedule{"*-*-* 03:17:19"}, &until)
 	if !active || !resume.IsZero() {
 		t.Fatalf("skipResume = %v, %v; want active with unknown resume", resume, active)
 	}
@@ -200,10 +202,10 @@ func TestSkipEntryUnskippable(t *testing.T) {
 		e       skipEntry
 		wantSub string
 	}{
-		{"ok", skipEntry{name: "x", schedule: "daily"}, ""},
-		{"disabled", skipEntry{name: "x", schedule: "daily", disabled: true}, "disabled"},
+		{"ok", skipEntry{name: "x", schedule: config.Schedule{"daily"}}, ""},
+		{"disabled", skipEntry{name: "x", schedule: config.Schedule{"daily"}, disabled: true}, "disabled"},
 		{"manual", skipEntry{name: "x"}, "no schedule"},
-		{"pending", skipEntry{name: "x", schedule: "daily", pending: true}, "ack or snooze"},
+		{"pending", skipEntry{name: "x", schedule: config.Schedule{"daily"}, pending: true}, "ack or snooze"},
 	}
 	for _, tc := range tests {
 		err := tc.e.unskippable()
@@ -216,5 +218,41 @@ func TestSkipEntryUnskippable(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.wantSub) {
 			t.Errorf("%s: err = %v, want containing %q", tc.name, err, tc.wantSub)
 		}
+	}
+}
+
+func TestSkipResumeFailsClosedPerExpression(t *testing.T) {
+	requireSystemdAnalyze(t)
+	first := jan2030(1)
+	// Resolving the good member on its own first must not let the batch that
+	// includes the bad one read as answered.
+	if _, ok := nextRun(config.Schedule{fiveDays}); !ok {
+		t.Fatal("fiveDays should resolve")
+	}
+	resume, active := skipResume(config.Schedule{fiveDays, "not a schedule"}, &first)
+	if !active || !resume.IsZero() {
+		t.Fatalf("skipResume = %v, %v; want active with unknown resume", resume, active)
+	}
+}
+
+func TestResolveNextRun_AllEnded(t *testing.T) {
+	requireSystemdAnalyze(t)
+	got := resolveNextRun(config.Schedule{"2020-01-01 09:00", "2020-01-02 09:00"})
+	if got != "2020-01-01 09:00 | 2020-01-02 09:00 (could not resolve)" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestPlanSkipNext_MergedRefusal(t *testing.T) {
+	requireSystemdAnalyze(t)
+	m := systemd.NewManager()
+	twoShots := skipEntry{kind: kindTask, name: "t", schedule: config.Schedule{"2030-01-02 09:00", "2030-01-01 09:00"}}
+
+	plan, err := planSkipNext(m, twoShots, 1)
+	if err != nil || !plan.until.Equal(jan2030(1)) || !plan.resume.Equal(jan2030(2)) {
+		t.Fatalf("plan = %+v, %v", plan, err)
+	}
+	if _, err := planSkipNext(m, twoShots, 2); err == nil || !strings.Contains(err.Error(), "firings left") {
+		t.Fatalf("skipping every merged firing should be refused, got %v", err)
 	}
 }

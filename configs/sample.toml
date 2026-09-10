@@ -27,6 +27,10 @@ retry.delay    = "5m"
 if_failed.command = "notify-send \"backup failed\" \"$ORBIT_TASK exited $ORBIT_EXIT_CODE\""
 if_failed.after   = 2  # only after 2 consecutive failed cycles (default 1)
 
+[tasks.standup]
+command  = "~/bin/standup"
+schedule = ["Mon..Fri 09:00", "Mon..Fri 13:30"]  # a list fires on every expression
+
 [tasks.deploy]
 command = "/path/to/scripts/deploy.sh"
 # no schedule — manual only, run with: orbit task run deploy

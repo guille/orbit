@@ -249,7 +249,7 @@ func getDataDir() (string, error) {
 }
 
 // currentEmbedVersion should be bumped whenever embedded assets (icon.png, schema.json) change.
-const currentEmbedVersion = 4
+const currentEmbedVersion = 5
 
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.
@@ -368,7 +368,7 @@ func toAppliedConfig(cfg *config.Config) *state.AppliedConfig {
 	for name, t := range cfg.Tasks {
 		ac.Tasks[name] = state.AppliedTaskConfig{
 			Command:  t.Command,
-			Schedule: t.Schedule,
+			Schedule: slices.Clone(t.Schedule),
 			OnMissed: t.OnMissed,
 			Retry: state.AppliedRetryConfig{
 				Attempts: t.Retry.GetAttempts(),
@@ -383,7 +383,7 @@ func toAppliedConfig(cfg *config.Config) *state.AppliedConfig {
 	for name, r := range cfg.Reminders {
 		ac.Reminders[name] = state.AppliedReminderConfig{
 			Command:  r.Command,
-			Schedule: r.Schedule,
+			Schedule: slices.Clone(r.Schedule),
 			Message:  r.Message,
 			Snooze:   r.Snooze,
 			Check:    r.Check,

@@ -49,7 +49,7 @@ snooze   = "2h"
 
 	backup := cfg.Tasks["backup"]
 	assertEqual(t, "backup.Command", backup.Command, "rsync -av ~/Documents /mnt/backup/")
-	assertEqual(t, "backup.Schedule", backup.Schedule, "daily")
+	assertEqual(t, "backup.Schedule", backup.Schedule.String(), "daily")
 	assertEqual(t, "backup.OnMissed", string(backup.OnMissed), "run_once")
 	assertEqualInt(t, "backup.Retry.Attempts", backup.Retry.GetAttempts(), 3)
 	assertEqual(t, "backup.Retry.Delay", backup.Retry.Delay, "5m")
@@ -67,7 +67,7 @@ snooze   = "2h"
 
 	wr := cfg.Reminders["weekly-review"]
 	assertEqual(t, "weekly-review.Command", wr.Command, "echo review")
-	assertEqual(t, "weekly-review.Schedule", wr.Schedule, "weekly")
+	assertEqual(t, "weekly-review.Schedule", wr.Schedule.String(), "weekly")
 	assertEqual(t, "weekly-review.Message", wr.Message, "Time for your weekly review")
 	assertEqual(t, "weekly-review.Snooze", wr.Snooze, "2h")
 }

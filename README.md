@@ -43,6 +43,14 @@ See [the example config](configs/sample.toml).
 
 Schedules use systemd's [OnCalendar syntax](https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html#Calendar%20Events).
 
+Starting in v1.11, a schedule may also be a list of expressions:
+
+```toml
+[tasks.standup]
+command  = "~/bin/standup"
+schedule = ["Mon..Fri 09:00", "Mon..Fri 13:30"]
+```
+
 ## Internals
 
 This section goes into a bit more detail of what happens behind the scenes when Orbit is managing units.

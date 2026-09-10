@@ -116,28 +116,28 @@ func (a *AppliedConfig) ReminderNames() []string {
 	return names
 }
 
-// TaskSchedules returns the schedule of every task, unsorted and possibly
-// with duplicates. Unscheduled (manual) tasks contribute an empty string.
+// TaskSchedules returns every schedule expression of every task, unsorted and
+// possibly with duplicates. Unscheduled (manual) tasks contribute nothing.
 func (a *AppliedConfig) TaskSchedules() []string {
 	if a == nil {
 		return nil
 	}
 	schedules := make([]string, 0, len(a.Tasks))
 	for _, t := range a.Tasks {
-		schedules = append(schedules, t.Schedule)
+		schedules = append(schedules, t.Schedule...)
 	}
 	return schedules
 }
 
-// Schedules returns the schedule of every task and reminder, unsorted and
-// possibly with duplicates.
+// Schedules returns every schedule expression of every task and reminder,
+// unsorted and possibly with duplicates.
 func (a *AppliedConfig) Schedules() []string {
 	if a == nil {
 		return nil
 	}
 	schedules := a.TaskSchedules()
 	for _, r := range a.Reminders {
-		schedules = append(schedules, r.Schedule)
+		schedules = append(schedules, r.Schedule...)
 	}
 	return schedules
 }
@@ -145,7 +145,7 @@ func (a *AppliedConfig) Schedules() []string {
 // AppliedTaskConfig is the applied (saved) version of a task's configuration.
 type AppliedTaskConfig struct {
 	Command  string                `json:"command"`
-	Schedule string                `json:"schedule"`
+	Schedule config.Schedule       `json:"schedule"`
 	OnMissed config.OnMissedPolicy `json:"on_missed"`
 	Retry    AppliedRetryConfig    `json:"retry"`
 	IfFailed AppliedHookConfig     `json:"if_failed,omitzero"`
@@ -165,11 +165,11 @@ type AppliedHookConfig struct {
 
 // AppliedReminderConfig is the applied (saved) version of a reminder's configuration.
 type AppliedReminderConfig struct {
-	Command  string `json:"command,omitempty"`
-	Schedule string `json:"schedule"`
-	Message  string `json:"message"`
-	Snooze   string `json:"snooze,omitempty"`
-	Check    string `json:"check,omitempty"`
+	Command  string          `json:"command,omitempty"`
+	Schedule config.Schedule `json:"schedule"`
+	Message  string          `json:"message"`
+	Snooze   string          `json:"snooze,omitempty"`
+	Check    string          `json:"check,omitempty"`
 }
 
 // TaskState tracks the state of a task.

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/state"
@@ -41,7 +42,7 @@ func TestFormatDuration(t *testing.T) {
 func TestDiffConfig_NewTasks(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 	}
 
@@ -57,12 +58,12 @@ func TestDiffConfig_NewTasks(t *testing.T) {
 func TestDiffConfig_UpdatedTask(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"backup": {Command: "rsync -av", Schedule: "weekly", OnMissed: "run_once"},
+			"backup": {Command: "rsync -av", Schedule: config.Schedule{"weekly"}, OnMissed: "run_once"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 		Reminders: make(map[string]state.AppliedReminderConfig),
 	}
@@ -80,7 +81,7 @@ func TestDiffConfig_RemovedTask(t *testing.T) {
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"old": {Command: "echo", Schedule: "daily"},
+			"old": {Command: "echo", Schedule: config.Schedule{"daily"}},
 		},
 		Reminders: make(map[string]state.AppliedReminderConfig),
 	}
@@ -97,12 +98,12 @@ func TestDiffConfig_RemovedTask(t *testing.T) {
 func TestDiffConfig_UnchangedTask(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once", Retry: state.AppliedRetryConfig{Attempts: 3, Delay: "5m"}},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: state.AppliedRetryConfig{Attempts: 3, Delay: "5m"}},
 		},
 		Reminders: make(map[string]state.AppliedReminderConfig),
 	}
@@ -120,15 +121,15 @@ func TestDiffConfig_Reminders(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: make(map[string]config.TaskConfig),
 		Reminders: map[string]config.ReminderConfig{
-			"review":  {Schedule: "weekly", Message: "Do review", Snooze: "2h"},
-			"standup": {Schedule: "daily", Message: "New standup"},
+			"review":  {Schedule: config.Schedule{"weekly"}, Message: "Do review", Snooze: "2h"},
+			"standup": {Schedule: config.Schedule{"daily"}, Message: "New standup"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: make(map[string]state.AppliedTaskConfig),
 		Reminders: map[string]state.AppliedReminderConfig{
-			"review": {Schedule: "weekly", Message: "Old message", Snooze: "2h"},
-			"old":    {Schedule: "daily", Message: "Removed"},
+			"review": {Schedule: config.Schedule{"weekly"}, Message: "Old message", Snooze: "2h"},
+			"old":    {Schedule: config.Schedule{"daily"}, Message: "Removed"},
 		},
 	}
 
@@ -141,18 +142,18 @@ func TestDiffConfig_Reminders(t *testing.T) {
 func TestDiffConfig_SortOrder(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"new-task": {Command: "echo", Schedule: "daily", OnMissed: "skip"},
+			"new-task": {Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "skip"},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"updated": {Schedule: "daily", Message: "New msg", Snooze: "1h"},
+			"updated": {Schedule: config.Schedule{"daily"}, Message: "New msg", Snooze: "1h"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"removed": {Command: "old", Schedule: "daily"},
+			"removed": {Command: "old", Schedule: config.Schedule{"daily"}},
 		},
 		Reminders: map[string]state.AppliedReminderConfig{
-			"updated": {Schedule: "daily", Message: "Old msg", Snooze: "1h"},
+			"updated": {Schedule: config.Schedule{"daily"}, Message: "Old msg", Snooze: "1h"},
 		},
 	}
 
@@ -173,20 +174,20 @@ func TestDiffConfig_SortOrder(t *testing.T) {
 }
 
 func TestTaskChanged(t *testing.T) {
-	base := state.AppliedTaskConfig{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: state.AppliedRetryConfig{Attempts: 3, Delay: "5m"}}
-	same := config.TaskConfig{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}}
+	base := state.AppliedTaskConfig{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: state.AppliedRetryConfig{Attempts: 3, Delay: "5m"}}
+	same := config.TaskConfig{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}}
 
 	if taskChanged(base, same) {
 		t.Error("identical configs should not be changed")
 	}
 
 	tests := []config.TaskConfig{
-		{Command: "different", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
-		{Command: "echo", Schedule: "weekly", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
-		{Command: "echo", Schedule: "daily", OnMissed: "skip", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
-		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(5), Delay: "5m"}},
-		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "10m"}},
-		{Command: "echo", Schedule: "daily", OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}, IfFailed: config.HookConfig{Command: "notify", After: new(1)}},
+		{Command: "different", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
+		{Command: "echo", Schedule: config.Schedule{"weekly"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
+		{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "skip", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}},
+		{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(5), Delay: "5m"}},
+		{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "10m"}},
+		{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once", Retry: config.RetryConfig{Attempts: new(3), Delay: "5m"}, IfFailed: config.HookConfig{Command: "notify", After: new(1)}},
 	}
 	fields := []string{"command", "schedule", "on_missed", "retry.attempts", "retry.delay", "if_failed.command"}
 	for i, tc := range tests {
@@ -199,10 +200,10 @@ func TestTaskChanged(t *testing.T) {
 func TestPrintConfigChanges_Output(t *testing.T) {
 	cs := configChangeSet{
 		changes: []configChange{
-			{name: "new", kind: kindTask, action: actionCreate, newTask: &config.TaskConfig{Command: "echo", Schedule: "daily", OnMissed: "skip"}},
+			{name: "new", kind: kindTask, action: actionCreate, newTask: &config.TaskConfig{Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "skip"}},
 			{name: "upd", kind: kindTask, action: actionUpdate,
-				oldTask: &state.AppliedTaskConfig{Command: "old", Schedule: "daily"},
-				newTask: &config.TaskConfig{Command: "new", Schedule: "weekly"}},
+				oldTask: &state.AppliedTaskConfig{Command: "old", Schedule: config.Schedule{"daily"}},
+				newTask: &config.TaskConfig{Command: "new", Schedule: config.Schedule{"weekly"}}},
 			{name: "del", kind: kindReminder, action: actionRemove},
 		},
 		nCreate: 1, nUpdate: 1, nRemove: 1,
@@ -273,7 +274,7 @@ func TestDiffConfig_UnscheduledTask(t *testing.T) {
 	if cs.nCreate != 1 {
 		t.Fatalf("expected 1 create, got %d", cs.nCreate)
 	}
-	if cs.changes[0].newTask.Schedule != "" {
+	if !cs.changes[0].newTask.Schedule.IsZero() {
 		t.Errorf("expected empty schedule, got %q", cs.changes[0].newTask.Schedule)
 	}
 }
@@ -281,12 +282,12 @@ func TestDiffConfig_UnscheduledTask(t *testing.T) {
 func TestDiffConfig_ScheduleAdded(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"deploy": {Command: "./deploy.sh", Schedule: "daily", OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"deploy": {Command: "./deploy.sh", Schedule: ""},
+			"deploy": {Command: "./deploy.sh", Schedule: nil},
 		},
 		Reminders: make(map[string]state.AppliedReminderConfig),
 	}
@@ -305,7 +306,7 @@ func TestDiffConfig_ScheduleRemoved(t *testing.T) {
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"deploy": {Command: "./deploy.sh", Schedule: "daily", OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 		Reminders: make(map[string]state.AppliedReminderConfig),
 	}
@@ -316,10 +317,10 @@ func TestDiffConfig_ScheduleRemoved(t *testing.T) {
 	}
 	// Verify the change has oldTask with schedule and newTask without
 	c := cs.changes[0]
-	if c.oldTask.Schedule != "daily" {
+	if c.oldTask.Schedule.String() != "daily" {
 		t.Errorf("expected old schedule 'daily', got %q", c.oldTask.Schedule)
 	}
-	if c.newTask.Schedule != "" {
+	if !c.newTask.Schedule.IsZero() {
 		t.Errorf("expected new schedule empty, got %q", c.newTask.Schedule)
 	}
 }
@@ -350,13 +351,13 @@ func TestDiffConfig_ReminderCheckChanged(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: make(map[string]config.TaskConfig),
 		Reminders: map[string]config.ReminderConfig{
-			"pacnew": {Schedule: "daily", Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
+			"pacnew": {Schedule: config.Schedule{"daily"}, Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: make(map[string]state.AppliedTaskConfig),
 		Reminders: map[string]state.AppliedReminderConfig{
-			"pacnew": {Schedule: "daily", Message: "Check pacnew", Check: "", Snooze: "2h"},
+			"pacnew": {Schedule: config.Schedule{"daily"}, Message: "Check pacnew", Check: "", Snooze: "2h"},
 		},
 	}
 
@@ -370,13 +371,13 @@ func TestDiffConfig_ReminderCheckUnchanged(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: make(map[string]config.TaskConfig),
 		Reminders: map[string]config.ReminderConfig{
-			"pacnew": {Schedule: "daily", Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
+			"pacnew": {Schedule: config.Schedule{"daily"}, Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		Tasks: make(map[string]state.AppliedTaskConfig),
 		Reminders: map[string]state.AppliedReminderConfig{
-			"pacnew": {Schedule: "daily", Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
+			"pacnew": {Schedule: config.Schedule{"daily"}, Message: "Check pacnew", Check: "locate .pacnew", Snooze: "2h"},
 		},
 	}
 
@@ -390,19 +391,19 @@ func TestDiffConfig_OrbitBinChangeMarksAllForUpdate(t *testing.T) {
 	cfg := &config.Config{
 		OrbitBin: "/new/orbit/path",
 		Tasks: map[string]config.TaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"review": {Schedule: "weekly", Message: "Do review"},
+			"review": {Schedule: config.Schedule{"weekly"}, Message: "Do review"},
 		},
 	}
 	applied := &state.AppliedConfig{
 		OrbitBin: "/old/orbit/path",
 		Tasks: map[string]state.AppliedTaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 		Reminders: map[string]state.AppliedReminderConfig{
-			"review": {Schedule: "weekly", Message: "Do review"},
+			"review": {Schedule: config.Schedule{"weekly"}, Message: "Do review"},
 		},
 	}
 
@@ -434,11 +435,11 @@ func TestDiffConfig_AllRemoved(t *testing.T) {
 	}
 	applied := &state.AppliedConfig{
 		Tasks: map[string]state.AppliedTaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}},
 			"deploy": {Command: "./deploy.sh"},
 		},
 		Reminders: map[string]state.AppliedReminderConfig{
-			"weekly": {Schedule: "weekly", Message: "hi"},
+			"weekly": {Schedule: config.Schedule{"weekly"}, Message: "hi"},
 		},
 	}
 
@@ -452,9 +453,9 @@ func TestDiffConfig_AllRemoved(t *testing.T) {
 }
 
 func TestUnitsToRemove(t *testing.T) {
-	scheduledOld := state.AppliedTaskConfig{Schedule: "daily"}
-	unscheduledNew := config.TaskConfig{Schedule: ""}
-	keptNew := config.TaskConfig{Schedule: "daily"}
+	scheduledOld := state.AppliedTaskConfig{Schedule: config.Schedule{"daily"}}
+	unscheduledNew := config.TaskConfig{Schedule: nil}
+	keptNew := config.TaskConfig{Schedule: config.Schedule{"daily"}}
 
 	cs := configChangeSet{changes: []configChange{
 		{name: "backup", kind: kindTask, action: actionRemove},
@@ -514,12 +515,12 @@ func writtenUnitNames(t *testing.T, cfg *config.Config, cs configChangeSet, forc
 func twoTaskTwoReminderCfg() *config.Config {
 	return &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
-			"deploy": {Command: "./deploy.sh", Schedule: "weekly", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: config.Schedule{"weekly"}, OnMissed: "run_once"},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"review":  {Schedule: "weekly", Message: "Do review"},
-			"standup": {Schedule: "daily", Message: "Standup"},
+			"review":  {Schedule: config.Schedule{"weekly"}, Message: "Do review"},
+			"standup": {Schedule: config.Schedule{"daily"}, Message: "Standup"},
 		},
 	}
 }
@@ -581,12 +582,12 @@ func TestUnitsToWrite_OrbitBinChangeWritesEverything(t *testing.T) {
 	applied := &state.AppliedConfig{
 		OrbitBin: "/old/orbit",
 		Tasks: map[string]state.AppliedTaskConfig{
-			"backup": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
-			"deploy": {Command: "./deploy.sh", Schedule: "weekly", OnMissed: "run_once"},
+			"backup": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
+			"deploy": {Command: "./deploy.sh", Schedule: config.Schedule{"weekly"}, OnMissed: "run_once"},
 		},
 		Reminders: map[string]state.AppliedReminderConfig{
-			"review":  {Schedule: "weekly", Message: "Do review"},
-			"standup": {Schedule: "daily", Message: "Standup"},
+			"review":  {Schedule: config.Schedule{"weekly"}, Message: "Do review"},
+			"standup": {Schedule: config.Schedule{"daily"}, Message: "Standup"},
 		},
 	}
 
@@ -608,7 +609,7 @@ func TestUnitsToWrite_ScheduleGainedAndLost(t *testing.T) {
 	// the stale timer, so unitsToWrite must simply not emit it).
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"gains": {Command: "echo", Schedule: "daily", OnMissed: "run_once"},
+			"gains": {Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 			"loses": {Command: "echo"},
 		},
 	}
@@ -632,10 +633,10 @@ func TestUnitsToWrite_SameNameTaskAndReminder(t *testing.T) {
 	// keyed per kind. Changing only the task must not regenerate the reminder.
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"sync": {Command: "rsync", Schedule: "daily", OnMissed: "run_once"},
+			"sync": {Command: "rsync", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"sync": {Schedule: "weekly", Message: "Sync it"},
+			"sync": {Schedule: config.Schedule{"weekly"}, Message: "Sync it"},
 		},
 	}
 	cs := configChangeSet{changes: []configChange{
@@ -702,12 +703,12 @@ func (f fakeStateReader) GetReminderState(name string) state.ReminderState {
 func disabledCfg() (*config.Config, fakeStateReader) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
-			"enabled-task":  {Schedule: "daily"},
-			"disabled-task": {Schedule: "daily"},
+			"enabled-task":  {Schedule: config.Schedule{"daily"}},
+			"disabled-task": {Schedule: config.Schedule{"daily"}},
 		},
 		Reminders: map[string]config.ReminderConfig{
-			"enabled-rem":  {Schedule: "daily"},
-			"disabled-rem": {Schedule: "daily"},
+			"enabled-rem":  {Schedule: config.Schedule{"daily"}},
+			"disabled-rem": {Schedule: config.Schedule{"daily"}},
 		},
 	}
 	sr := fakeStateReader{
@@ -766,7 +767,7 @@ func TestTimersToDisable_SkipsManualTask(t *testing.T) {
 	cfg := &config.Config{
 		Tasks: map[string]config.TaskConfig{
 			"manual":    {},
-			"scheduled": {Schedule: "daily"},
+			"scheduled": {Schedule: config.Schedule{"daily"}},
 		},
 	}
 	sr := fakeStateReader{tasks: map[string]state.TaskState{
@@ -840,5 +841,40 @@ func TestToAppliedConfig_IfFailed(t *testing.T) {
 	}
 	if got := ac.Tasks["plain"].IfFailed; got != (state.AppliedHookConfig{}) {
 		t.Errorf("task without a hook should have a zero applied hook, got %+v", got)
+	}
+}
+
+func TestClearSkipsOnScheduleChange_ListGrows(t *testing.T) {
+	stateStore, err := state.NewState(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour)
+	stateStore.SetTaskState("standup", state.TaskState{SkipUntil: &until})
+	stateStore.SetTaskState("same", state.TaskState{SkipUntil: &until})
+
+	cfg := &config.Config{
+		Tasks: map[string]config.TaskConfig{
+			"standup": {Command: "echo", Schedule: config.Schedule{"Mon..Fri 09:00", "Mon..Fri 13:30"}, OnMissed: "run_once"},
+			"same":    {Command: "echo", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
+		},
+	}
+	applied := &state.AppliedConfig{
+		Tasks: map[string]state.AppliedTaskConfig{
+			"standup": {Command: "echo", Schedule: config.Schedule{"Mon..Fri 09:00"}, OnMissed: "run_once"},
+			"same":    {Command: "echo again", Schedule: config.Schedule{"daily"}, OnMissed: "run_once"},
+		},
+		Reminders: make(map[string]state.AppliedReminderConfig),
+	}
+	cs := diffConfig(cfg, applied)
+	if cs.nUpdate != 2 {
+		t.Fatalf("expected 2 updates, got %d", cs.nUpdate)
+	}
+	cleared := clearSkipsOnScheduleChange(cs, stateStore)
+	if len(cleared) != 1 || cleared[0] != "standup" {
+		t.Fatalf("cleared = %v, want [standup]", cleared)
+	}
+	if stateStore.GetTaskState("same").SkipUntil == nil {
+		t.Error("skip on an entry whose schedule did not change was cleared")
 	}
 }

@@ -69,7 +69,7 @@ const (
 // TaskConfig represents a task configuration.
 type TaskConfig struct {
 	Command  string         `toml:"command"`
-	Schedule string         `toml:"schedule"`
+	Schedule Schedule       `toml:"schedule"`
 	OnMissed OnMissedPolicy `toml:"on_missed"`
 	Retry    RetryConfig    `toml:"retry"`
 	IfFailed HookConfig     `toml:"if_failed"`
@@ -107,11 +107,11 @@ func (h HookConfig) GetAfter() int {
 
 // ReminderConfig represents a reminder configuration.
 type ReminderConfig struct {
-	Command  string `toml:"command"` // optional
-	Schedule string `toml:"schedule"`
-	Message  string `toml:"message"`
-	Snooze   string `toml:"snooze"`
-	Check    string `toml:"check"` // optional: only fire if this command exits 0
+	Command  string   `toml:"command"` // optional
+	Schedule Schedule `toml:"schedule"`
+	Message  string   `toml:"message"`
+	Snooze   string   `toml:"snooze"`
+	Check    string   `toml:"check"` // optional: only fire if this command exits 0
 }
 
 // LoadConfig loads and returns the configuration from the specified path.
@@ -295,7 +295,7 @@ func (c *Config) applyDefaults() {
 		c.OrbitBin = "orbit"
 	}
 	for name, t := range c.Tasks {
-		if t.OnMissed == "" && t.Schedule != "" {
+		if t.OnMissed == "" && !t.Schedule.IsZero() {
 			t.OnMissed = OnMissedRunOnce
 		}
 		if t.Retry.Attempts == nil {
@@ -330,7 +330,10 @@ func (c *Config) Validate() error {
 		if t.Command == "" {
 			return fmt.Errorf("task %s: command is required%s", name, c.sourceSuffix("tasks", name))
 		}
-		if t.Schedule != "" {
+		if expr, dup := t.Schedule.duplicate(); dup {
+			return fmt.Errorf("task %s: schedule lists %q more than once%s", name, expr, c.sourceSuffix("tasks", name))
+		}
+		if !t.Schedule.IsZero() {
 			switch t.OnMissed {
 			case OnMissedRunOnce, OnMissedSkip:
 				// valid
@@ -362,8 +365,11 @@ func (c *Config) Validate() error {
 		if !validName.MatchString(name) {
 			return fmt.Errorf("reminder %q: name must match [a-zA-Z0-9][a-zA-Z0-9_-]* (letters, digits, hyphens, underscores; must start with letter or digit)", name)
 		}
-		if r.Schedule == "" {
+		if r.Schedule.IsZero() {
 			return fmt.Errorf("reminder %s: schedule is required%s", name, c.sourceSuffix("reminders", name))
+		}
+		if expr, dup := r.Schedule.duplicate(); dup {
+			return fmt.Errorf("reminder %s: schedule lists %q more than once%s", name, expr, c.sourceSuffix("reminders", name))
 		}
 		if r.Message == "" {
 			return fmt.Errorf("reminder %s: message is required%s", name, c.sourceSuffix("reminders", name))
@@ -376,21 +382,22 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate every unique schedule expression in one systemd-analyze call.
-	users := make(map[string]string) // schedule -> first user (for error messages)
+	users := make(map[string]string) // expression -> first user (for error messages)
 	var schedules []string
 	for name, t := range c.Tasks {
-		if t.Schedule == "" {
-			continue
-		}
-		if _, seen := users[t.Schedule]; !seen {
-			users[t.Schedule] = "task " + name + c.sourceSuffix("tasks", name)
-			schedules = append(schedules, t.Schedule)
+		for _, expr := range t.Schedule {
+			if _, seen := users[expr]; !seen {
+				users[expr] = "task " + name + c.sourceSuffix("tasks", name)
+				schedules = append(schedules, expr)
+			}
 		}
 	}
 	for name, r := range c.Reminders {
-		if _, seen := users[r.Schedule]; !seen {
-			users[r.Schedule] = "reminder " + name + c.sourceSuffix("reminders", name)
-			schedules = append(schedules, r.Schedule)
+		for _, expr := range r.Schedule {
+			if _, seen := users[expr]; !seen {
+				users[expr] = "reminder " + name + c.sourceSuffix("reminders", name)
+				schedules = append(schedules, expr)
+			}
 		}
 	}
 	// Sorted so that a config with several bad schedules always names the same one.

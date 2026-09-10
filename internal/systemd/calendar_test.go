@@ -26,7 +26,7 @@ func TestOccurrences(t *testing.T) {
 	m := NewManager()
 
 	t.Run("short schedule yields fewer than asked, exit status notwithstanding", func(t *testing.T) {
-		got, err := m.Occurrences(fiveDays, 8)
+		got, err := m.Occurrences([]string{fiveDays}, 8)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,13 +41,13 @@ func TestOccurrences(t *testing.T) {
 	})
 
 	t.Run("asks for fewer than exist", func(t *testing.T) {
-		if got, _ := m.Occurrences(fiveDays, 2); len(got) != 2 || !got[1].Equal(jan2030(2)) {
+		if got, _ := m.Occurrences([]string{fiveDays}, 2); len(got) != 2 || !got[1].Equal(jan2030(2)) {
 			t.Fatalf("got %v", got)
 		}
 	})
 
 	t.Run("ended schedule", func(t *testing.T) {
-		got, err := m.Occurrences("2020-01-01 09:00", 3)
+		got, err := m.Occurrences([]string{"2020-01-01 09:00"}, 3)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("got %v, %v; want none and no error", got, err)
 		}
@@ -57,14 +57,14 @@ func TestOccurrences(t *testing.T) {
 		// Nothing answered at all reads as a failure to answer: callers pass
 		// schedules that apply already validated, so this only happens when
 		// the tool itself is broken.
-		got, err := m.Occurrences("not a schedule", 3)
+		got, err := m.Occurrences([]string{"not a schedule"}, 3)
 		if err == nil || len(got) != 0 {
 			t.Fatalf("got %v, %v; want none and an error", got, err)
 		}
 	})
 
 	t.Run("open-ended schedule is strictly increasing", func(t *testing.T) {
-		got, _ := m.Occurrences("daily", 3)
+		got, _ := m.Occurrences([]string{"daily"}, 3)
 		if len(got) != 3 {
 			t.Fatalf("got %d occurrences, want 3", len(got))
 		}
@@ -88,7 +88,7 @@ func TestAnalyzeCalendarToolFailure(t *testing.T) {
 func TestNextElapses(t *testing.T) {
 	requireSystemdAnalyze(t)
 
-	got := NewManager().NextElapses([]string{fiveDays, "daily", "bogus"})
+	got, _ := NewManager().NextElapses([]string{fiveDays, "daily", "bogus"}, time.Time{})
 	if !got[fiveDays].Equal(jan2030(1)) {
 		t.Errorf("%q = %v, want %v", fiveDays, got[fiveDays], jan2030(1))
 	}
@@ -100,7 +100,7 @@ func TestNextElapses(t *testing.T) {
 	}
 }
 
-func TestNextAfter(t *testing.T) {
+func TestNextElapses_Base(t *testing.T) {
 	requireSystemdAnalyze(t)
 	m := NewManager()
 
@@ -116,14 +116,62 @@ func TestNextAfter(t *testing.T) {
 		{"base at last occurrence", jan2030(5), time.Time{}, false},
 	}
 	for _, tc := range tests {
-		got, ok, err := m.NextAfter(fiveDays, tc.base)
+		elapses, err := m.NextElapses([]string{fiveDays, "bogus"}, tc.base)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ok != tc.ok || !got.Equal(tc.want) {
-			t.Errorf("%s: NextAfter(%v) = %v, %v; want %v, %v", tc.name, tc.base, got, ok, tc.want, tc.ok)
+		// An ended expression is answered with the zero time; a rejected one
+		// is absent, so callers can tell the two apart.
+		got, answered := elapses[fiveDays]
+		if !answered || !got.Equal(tc.want) || got.IsZero() != !tc.ok {
+			t.Errorf("%s: NextElapses(%v) = %v, %v; want %v", tc.name, tc.base, got, answered, tc.want)
+		}
+		if _, ok := elapses["bogus"]; ok {
+			t.Errorf("%s: rejected expression should be absent", tc.name)
 		}
 	}
+}
+
+func TestOccurrences_Merge(t *testing.T) {
+	requireSystemdAnalyze(t)
+	m := NewManager()
+	// Three afternoons interleaved with the five mornings, plus one exact
+	// duplicate of a morning firing.
+	afternoons := "2030-01-02..04 15:00"
+	dupMorning := "2030-01-03 09:00"
+	at := func(day, hour int) time.Time {
+		return time.Date(2030, time.January, day, hour, 0, 0, 0, time.Local)
+	}
+
+	t.Run("interleaved, deduped, truncated", func(t *testing.T) {
+		got, err := m.Occurrences([]string{fiveDays, afternoons, dupMorning}, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []time.Time{at(1, 9), at(2, 9), at(2, 15), at(3, 9), at(3, 15)}
+		if len(got) != len(want) {
+			t.Fatalf("got %d occurrences, want %d: %v", len(got), len(want), got)
+		}
+		for i := range want {
+			if !got[i].Equal(want[i]) {
+				t.Errorf("occurrence %d = %v, want %v", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("union runs out", func(t *testing.T) {
+		got, err := m.Occurrences([]string{fiveDays, afternoons}, 20)
+		if err != nil || len(got) != 8 {
+			t.Fatalf("got %d occurrences, %v; want 8 and no error", len(got), err)
+		}
+	})
+
+	t.Run("one ended member does not lose the other", func(t *testing.T) {
+		got, err := m.Occurrences([]string{"2020-01-01 09:00", fiveDays}, 2)
+		if err != nil || len(got) != 2 || !got[0].Equal(jan2030(1)) {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	})
 }
 
 func TestResolveTime(t *testing.T) {

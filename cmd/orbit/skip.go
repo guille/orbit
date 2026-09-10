@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.guillerg.dev/orbit/internal/config"
 	"go.guillerg.dev/orbit/internal/reminder"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
@@ -23,7 +24,7 @@ const skipCountCap = 100
 type skipEntry struct {
 	kind      entryKind
 	name      string
-	schedule  string
+	schedule  config.Schedule
 	disabled  bool
 	pending   bool // reminders only: awaiting ack or snooze
 	skipUntil *time.Time
@@ -34,7 +35,7 @@ func (e skipEntry) unskippable() error {
 	switch {
 	case e.disabled:
 		return fmt.Errorf("'%s' is disabled and will not fire anyway; 'orbit enable %s' first", e.name, e.name)
-	case e.schedule == "":
+	case e.schedule.IsZero():
 		return fmt.Errorf("'%s' has no schedule; nothing to skip", e.name)
 	case e.pending:
 		return fmt.Errorf("'%s' is pending; ack or snooze it, then skip", e.name)
@@ -102,7 +103,7 @@ func clearSkip(stateStore *state.State, kind entryKind, name string) error {
 // skipGate decides a scheduled start under a skip window: true means the
 // start must be suppressed, and the decision is logged for the journal. A
 // window that has run its course is cleared here, on the way through.
-func skipGate(stateStore *state.State, kind entryKind, name, schedule string, skipUntil *time.Time) (bool, error) {
+func skipGate(stateStore *state.State, kind entryKind, name string, schedule config.Schedule, skipUntil *time.Time) (bool, error) {
 	if skipUntil == nil {
 		return false, nil
 	}
@@ -242,7 +243,7 @@ func planSkipUntil(m *systemd.Manager, e skipEntry, when time.Time) (skipPlan, e
 		plan.resume = occ[count]
 		return plan, nil
 	}
-	resume, ok, err := m.NextAfter(e.schedule, until)
+	resume, ok, err := nextRunAfter(e.schedule, until)
 	if err != nil {
 		return skipPlan{}, fmt.Errorf("resolving schedule of '%s': %w", e.name, err)
 	}

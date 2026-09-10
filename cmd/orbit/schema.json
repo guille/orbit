@@ -53,8 +53,11 @@
           "description": "The command to execute."
         },
         "schedule": {
-          "type": "string",
-          "description": "systemd OnCalendar expression (e.g. 'daily', '*-*-* 03:00:00'). Omit for manual-only tasks."
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "systemd OnCalendar expression (e.g. 'daily', '*-*-* 03:00:00'), or a list of them to fire on all. Omit for manual-only tasks."
         },
         "on_missed": {
           "type": "string",
@@ -125,8 +128,11 @@
           "description": "Optional command to run when the reminder is acknowledged."
         },
         "schedule": {
-          "type": "string",
-          "description": "systemd OnCalendar expression (e.g. 'daily', 'weekly')."
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "systemd OnCalendar expression (e.g. 'daily', 'weekly'), or a list of them to fire on all."
         },
         "message": {
           "type": "string",
