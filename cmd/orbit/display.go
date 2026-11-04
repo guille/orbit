@@ -18,6 +18,7 @@ const (
 	cellManual   = "(manual)"   // runs only on demand
 	cellDisabled = "(disabled)" // suppressed by 'orbit disable'
 	cellSkipped  = "(skipped)"  // suppressed by 'orbit skip'; prefixed by the resume time
+	cellEnded    = "(ended)"    // schedule has no occurrences left
 )
 
 // Column headers. Listings use a subset in this order.

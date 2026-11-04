@@ -160,9 +160,13 @@ func nextFire(schedule config.Schedule, skipUntil *time.Time) (time.Time, bool) 
 
 // resolveNextRun returns a human-friendly next-run string for a schedule.
 func resolveNextRun(schedule config.Schedule) string {
-	t, ok := nextRun(schedule)
-	if !ok {
+	t, ok, err := nextRunAfter(schedule, time.Time{})
+	switch {
+	case ok:
+		return formatTime(t)
+	case err == nil:
+		return dim(cellEnded)
+	default:
 		return schedule.String() + " (could not resolve)"
 	}
-	return formatTime(t)
 }

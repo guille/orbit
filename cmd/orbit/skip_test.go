@@ -238,7 +238,15 @@ func TestSkipResumeFailsClosedPerExpression(t *testing.T) {
 func TestResolveNextRun_AllEnded(t *testing.T) {
 	requireSystemdAnalyze(t)
 	got := resolveNextRun(config.Schedule{"2020-01-01 09:00", "2020-01-02 09:00"})
-	if got != "2020-01-01 09:00 | 2020-01-02 09:00 (could not resolve)" {
+	if got != dim(cellEnded) {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestResolveNextRun_Unresolvable(t *testing.T) {
+	requireSystemdAnalyze(t)
+	got := resolveNextRun(config.Schedule{"2020-01-01 09:00", "not a schedule"})
+	if got != "2020-01-01 09:00 | not a schedule (could not resolve)" {
 		t.Errorf("got %q", got)
 	}
 }
