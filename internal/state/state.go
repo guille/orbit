@@ -170,6 +170,7 @@ type AppliedReminderConfig struct {
 	Message  string          `json:"message"`
 	Snooze   string          `json:"snooze,omitempty"`
 	Check    string          `json:"check,omitempty"`
+	Urgency  config.Urgency  `json:"urgency,omitempty"`
 }
 
 // TaskState tracks the state of a task.

@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,24 @@ func TestNotifyFailureStillFires(t *testing.T) {
 	}
 	if _, err := os.Stat(e.sentinelPath()); err != nil {
 		t.Fatalf("expected sentinel after a failed send: %v", err)
+	}
+}
+
+// TestNotifyUrgency verifies the configured urgency reaches notify-send.
+func TestNotifyUrgency(t *testing.T) {
+	requireSystemdAnalyze(t)
+
+	e := newEnv(t)
+	if r := e.applyConfig(t, "[reminders.standup]\nschedule = \"Mon *-*-* 09:00:00\"\nmessage = \"Standup\"\nurgency = \"critical\"\n"); r.exit != 0 {
+		t.Fatalf("apply: exit=%d stderr=%s", r.exit, r.stderr)
+	}
+	if r := e.run(t, "", "_notify", "standup"); r.exit != 0 {
+		t.Fatalf("_notify: exit=%d stderr=%s", r.exit, r.stderr)
+	}
+
+	args := e.lastNotifyArgs(t)
+	i := slices.Index(args, "--urgency")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "critical" {
+		t.Errorf("expected --urgency critical in notify-send args, got %q", args)
 	}
 }

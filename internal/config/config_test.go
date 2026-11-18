@@ -242,6 +242,29 @@ on_missed = "bogus"
 	}
 }
 
+func TestValidate_ReminderUrgency(t *testing.T) {
+	for _, urgency := range []string{"low", "normal", "critical"} {
+		cfg, err := loadFromString("[reminders.r]\nschedule = \"daily\"\nmessage = \"m\"\nurgency = \"" + urgency + "\"\n")
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("urgency %q: unexpected error: %v", urgency, err)
+		}
+		if got := cfg.Reminders["r"].Urgency; got != Urgency(urgency) {
+			t.Errorf("urgency = %q, want %q", got, urgency)
+		}
+	}
+
+	cfg, err := loadFromString("[reminders.r]\nschedule = \"daily\"\nmessage = \"m\"\nurgency = \"high\"\n")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "urgency must be one of") {
+		t.Fatalf("expected urgency validation error, got %v", err)
+	}
+}
+
 func TestValidate_MissingReminderSchedule(t *testing.T) {
 	cfg, err := loadFromString(`
 [reminders.invalid]

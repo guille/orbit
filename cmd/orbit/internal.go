@@ -97,9 +97,10 @@ func notifyInternalCmd() *cobra.Command {
 
 			icon, _ := iconPath()
 			sendErr := notify.Send(notify.Notification{
-				Title: "Orbit: " + name,
-				Body:  reminderConfig.Message,
-				Icon:  icon,
+				Title:   "Orbit: " + name,
+				Body:    reminderConfig.Message,
+				Icon:    icon,
+				Urgency: string(reminderConfig.Urgency),
 			})
 
 			// Check if snoozed before Fire() changes state
@@ -251,7 +252,7 @@ func getDataDir() (string, error) {
 }
 
 // currentEmbedVersion should be bumped whenever embedded assets (icon.png, schema.json) change.
-const currentEmbedVersion = 5
+const currentEmbedVersion = 6
 
 // ensureEmbeddedAssets writes embedded assets to disk if the stored version is
 // outdated or if any files are missing.
@@ -389,6 +390,7 @@ func toAppliedConfig(cfg *config.Config) *state.AppliedConfig {
 			Message:  r.Message,
 			Snooze:   r.Snooze,
 			Check:    r.Check,
+			Urgency:  r.Urgency,
 		}
 	}
 	return ac

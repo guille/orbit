@@ -40,6 +40,7 @@ command  = "echo 'Running weekly review'"
 schedule = "Mon *-*-* 09:00:00"  # Monday at 9 AM
 message  = "Time for your weekly review"
 snooze   = "2h"
+urgency  = "critical"  # low, normal or critical; unset leaves it to the notification server
 
 [reminders.check-pacnew]
 schedule = "daily"

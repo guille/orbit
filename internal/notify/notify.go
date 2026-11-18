@@ -10,9 +10,10 @@ import (
 // Binary is the notification command orbit depends on.
 const Binary = "notify-send"
 
-// Notification is a desktop notification to display.
+// Notification is a desktop notification to display. An empty Urgency
+// leaves the level to the notification server.
 type Notification struct {
-	Title, Body, Icon string
+	Title, Body, Icon, Urgency string
 }
 
 // Send fires a desktop notification via notify-send.
@@ -32,6 +33,9 @@ func args(n Notification) []string {
 	var a []string
 	if n.Icon != "" {
 		a = append(a, "--icon", n.Icon)
+	}
+	if n.Urgency != "" {
+		a = append(a, "--urgency", n.Urgency)
 	}
 	return append(a, n.Title, n.Body)
 }

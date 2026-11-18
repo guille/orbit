@@ -153,14 +153,29 @@ func fakeShow(logPath string, args []string) {
 	}
 }
 
-// runFakeNotifySend stands in for the desktop notifier. It fails while the
-// marker from breakNotifier exists.
+// runFakeNotifySend stands in for the desktop notifier, recording its argv
+// one per line. It fails while the marker from breakNotifier exists.
 func runFakeNotifySend() int {
+	_ = os.WriteFile(notifyArgsPath(os.Getenv("HOME")), []byte(strings.Join(os.Args[1:], "\n")), 0o644)
 	if _, err := os.Stat(notifyFailPath(os.Getenv("HOME"))); err == nil {
 		fmt.Fprintln(os.Stderr, "Cannot connect to notification server")
 		return 1
 	}
 	return 0
+}
+
+func notifyArgsPath(home string) string {
+	return filepath.Join(home, "fake-notify-args")
+}
+
+// lastNotifyArgs returns the argv of the most recent notify-send call.
+func (e *orbitEnv) lastNotifyArgs(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(notifyArgsPath(e.home))
+	if err != nil {
+		t.Fatalf("notify-send was not called: %v", err)
+	}
+	return strings.Split(string(data), "\n")
 }
 
 func notifyFailPath(home string) string {

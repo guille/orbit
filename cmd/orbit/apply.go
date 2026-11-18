@@ -279,7 +279,8 @@ func reminderChanged(old state.AppliedReminderConfig, new config.ReminderConfig)
 		!slices.Equal(old.Schedule, new.Schedule) ||
 		old.Message != new.Message ||
 		old.Snooze != new.Snooze ||
-		old.Check != new.Check
+		old.Check != new.Check ||
+		old.Urgency != new.Urgency
 }
 
 // changedEntries returns the task and reminder names the changeset creates or
@@ -502,6 +503,9 @@ func printNewConfigSummary(c configChange) {
 		if r.Snooze != "" {
 			fmt.Printf("      snooze:   %s\n", r.Snooze)
 		}
+		if r.Urgency != "" {
+			fmt.Printf("      urgency:  %s\n", r.Urgency)
+		}
 	}
 }
 
@@ -530,6 +534,7 @@ func printConfigDiff(c configChange) {
 		diffField("message", old.Message, new.Message)
 		diffField("check", old.Check, new.Check)
 		diffField("snooze", old.Snooze, new.Snooze)
+		diffField("urgency", string(old.Urgency), string(new.Urgency))
 	}
 }
 

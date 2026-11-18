@@ -148,6 +148,7 @@ func printReminderStatus(stateStore *state.State, name string) error {
 	fmt.Printf("Schedule:       %s\n", orNone(reminderConfig.Schedule.String()))
 	fmt.Printf("Check:          %s\n", orNone(reminderConfig.Check))
 	fmt.Printf("Snooze default: %s\n", orNone(reminderConfig.Snooze))
+	fmt.Printf("Urgency:        %s\n", orNone(string(reminderConfig.Urgency)))
 	fmt.Println()
 
 	fmt.Printf("Status:         %s\n", colorizeReminderState(rs.State))

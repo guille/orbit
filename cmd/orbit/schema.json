@@ -146,6 +146,11 @@
         "check": {
           "type": "string",
           "description": "Optional command to run before firing. The reminder only triggers if this command exits with code 0."
+        },
+        "urgency": {
+          "type": "string",
+          "description": "Notification urgency. How each level looks is up to the notification server; critical usually stays on screen until dismissed. Unset leaves it to the server (normally 'normal').",
+          "enum": ["low", "normal", "critical"]
         }
       },
       "additionalProperties": false

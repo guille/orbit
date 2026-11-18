@@ -387,6 +387,26 @@ func TestDiffConfig_ReminderCheckUnchanged(t *testing.T) {
 	}
 }
 
+func TestDiffConfig_ReminderUrgencyChanged(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: make(map[string]config.TaskConfig),
+		Reminders: map[string]config.ReminderConfig{
+			"standup": {Schedule: config.Schedule{"daily"}, Message: "Standup", Urgency: config.UrgencyCritical},
+		},
+	}
+	applied := &state.AppliedConfig{
+		Tasks: make(map[string]state.AppliedTaskConfig),
+		Reminders: map[string]state.AppliedReminderConfig{
+			"standup": {Schedule: config.Schedule{"daily"}, Message: "Standup"},
+		},
+	}
+
+	cs := diffConfig(cfg, applied)
+	if cs.nUpdate != 1 {
+		t.Fatalf("expected 1 update (urgency added), got %d", cs.nUpdate)
+	}
+}
+
 func TestDiffConfig_OrbitBinChangeMarksAllForUpdate(t *testing.T) {
 	cfg := &config.Config{
 		OrbitBin: "/new/orbit/path",

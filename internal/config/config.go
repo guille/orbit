@@ -66,6 +66,16 @@ const (
 	OnMissedSkip    OnMissedPolicy = "skip"
 )
 
+// Urgency is a reminder notification's urgency level, as defined by the
+// freedesktop notification spec.
+type Urgency string
+
+const (
+	UrgencyLow      Urgency = "low"
+	UrgencyNormal   Urgency = "normal"
+	UrgencyCritical Urgency = "critical"
+)
+
 // TaskConfig represents a task configuration.
 type TaskConfig struct {
 	Command  string         `toml:"command"`
@@ -111,7 +121,8 @@ type ReminderConfig struct {
 	Schedule Schedule `toml:"schedule"`
 	Message  string   `toml:"message"`
 	Snooze   string   `toml:"snooze"`
-	Check    string   `toml:"check"` // optional: only fire if this command exits 0
+	Check    string   `toml:"check"`   // optional: only fire if this command exits 0
+	Urgency  Urgency  `toml:"urgency"` // optional: empty leaves it to the notification server
 }
 
 // LoadConfig loads and returns the configuration from the specified path.
@@ -378,6 +389,11 @@ func (c *Config) Validate() error {
 			if _, err := time.ParseDuration(r.Snooze); err != nil {
 				return fmt.Errorf("reminder %s: invalid snooze duration %q: %v%s", name, r.Snooze, err, c.sourceSuffix("reminders", name))
 			}
+		}
+		switch r.Urgency {
+		case "", UrgencyLow, UrgencyNormal, UrgencyCritical:
+		default:
+			return fmt.Errorf("reminder %s: urgency must be one of: low, normal, critical%s", name, c.sourceSuffix("reminders", name))
 		}
 	}
 
