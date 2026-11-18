@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +62,28 @@ func TestDisableDismissesPending(t *testing.T) {
 	}
 	if _, err := os.Stat(e.sentinelPath()); !os.IsNotExist(err) {
 		t.Errorf("expected sentinel cleared after disabling a pending reminder, stat err=%v", err)
+	}
+}
+
+// TestNotifyFailureStillFires verifies a failed popup fails the unit but the
+// reminder is still recorded as pending, so the prompt sentinel shows it.
+func TestNotifyFailureStillFires(t *testing.T) {
+	requireSystemdAnalyze(t)
+
+	e := newEnv(t)
+	if r := e.applyConfig(t, "[reminders.standup]\nschedule = \"Mon *-*-* 09:00:00\"\nmessage = \"Standup\"\n"); r.exit != 0 {
+		t.Fatalf("apply: exit=%d stderr=%s", r.exit, r.stderr)
+	}
+	e.breakNotifier(t)
+
+	r := e.run(t, "", "_notify", "standup")
+	if r.exit == 0 {
+		t.Fatalf("_notify: expected non-zero exit when notify-send fails, stderr=%s", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "Cannot connect to notification server") {
+		t.Errorf("stderr should carry notify-send's output, got %q", r.stderr)
+	}
+	if _, err := os.Stat(e.sentinelPath()); err != nil {
+		t.Fatalf("expected sentinel after a failed send: %v", err)
 	}
 }

@@ -39,6 +39,8 @@ func TestMain(m *testing.M) {
 	switch filepath.Base(os.Args[0]) {
 	case "systemctl", "journalctl":
 		os.Exit(runFakeSystemd())
+	case "notify-send":
+		os.Exit(runFakeNotifySend())
 	}
 
 	tmp, err := os.MkdirTemp("", "orbit-e2e-*")
@@ -64,7 +66,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	for _, name := range []string{"systemctl", "journalctl"} {
+	for _, name := range []string{"systemctl", "journalctl", "notify-send"} {
 		if err := os.Symlink(self, filepath.Join(fakeBin, name)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -96,6 +98,10 @@ func runFakeSystemd() int {
 			return 0
 		case "show":
 			fakeShow(logPath, os.Args[i+1:])
+			return 0
+		case "show-environment":
+			// Services inherit orbit's PATH, which has the fakes first.
+			fmt.Println("PATH=" + os.Getenv("PATH"))
 			return 0
 		}
 	}
@@ -144,6 +150,28 @@ func fakeShow(logPath string, args []string) {
 			}
 			fmt.Printf("Result=%s\nExecMainStatus=%d\n", r.result, r.status)
 		}
+	}
+}
+
+// runFakeNotifySend stands in for the desktop notifier. It fails while the
+// marker from breakNotifier exists.
+func runFakeNotifySend() int {
+	if _, err := os.Stat(notifyFailPath(os.Getenv("HOME"))); err == nil {
+		fmt.Fprintln(os.Stderr, "Cannot connect to notification server")
+		return 1
+	}
+	return 0
+}
+
+func notifyFailPath(home string) string {
+	return filepath.Join(home, "fake-notify-fail")
+}
+
+// breakNotifier makes the fake notify-send fail from now on.
+func (e *orbitEnv) breakNotifier(t *testing.T) {
+	t.Helper()
+	if err := os.WriteFile(notifyFailPath(e.home), nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

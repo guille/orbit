@@ -1,7 +1,14 @@
 // Package notify sends desktop notifications via notify-send.
 package notify
 
-import "os/exec"
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// Binary is the notification command orbit depends on.
+const Binary = "notify-send"
 
 // Notification is a desktop notification to display.
 type Notification struct {
@@ -10,7 +17,14 @@ type Notification struct {
 
 // Send fires a desktop notification via notify-send.
 func Send(n Notification) error {
-	return exec.Command("notify-send", args(n)...).Run()
+	out, err := exec.Command(Binary, args(n)...).CombinedOutput()
+	if err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("%s: %w: %s", Binary, err, msg)
+		}
+		return fmt.Errorf("%s: %w", Binary, err)
+	}
+	return nil
 }
 
 // args builds the notify-send argv.

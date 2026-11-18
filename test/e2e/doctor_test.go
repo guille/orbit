@@ -136,3 +136,26 @@ func countShowCalls(calls []string) int {
 	}
 	return n
 }
+
+// TestDoctorReminderServiceFailed: the last `_notify` run failed (e.g. the
+// popup could not be shown). Doctor must fail and name the reminder.
+func TestDoctorReminderServiceFailed(t *testing.T) {
+	requireSystemdAnalyze(t)
+
+	e := newEnv(t)
+	if r := e.applyConfig(t, "[reminders.standup]\nschedule = \"Mon *-*-* 09:00:00\"\nmessage = \"Standup\"\n"); r.exit != 0 {
+		t.Fatalf("apply: exit=%d stderr=%s", r.exit, r.stderr)
+	}
+	if r := e.run(t, "", "doctor"); !contains(r.stdout, "Checking reminder services... PASS") {
+		t.Fatalf("expected reminder services to pass before any failure, got:\n%s", r.stdout)
+	}
+
+	e.setFakeResult(t, "orbit-reminder-standup.service", "exit-code", 1)
+	r := e.run(t, "", "doctor")
+	if r.exit == 0 {
+		t.Errorf("doctor should fail when a reminder service failed, got exit 0\n%s", r.stdout)
+	}
+	if !contains(r.stdout, "FAIL: standup last run failed (exit 1)") {
+		t.Errorf("expected the failed reminder to be named, got:\n%s", r.stdout)
+	}
+}

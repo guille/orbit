@@ -392,3 +392,29 @@ func TestFailedServices_Error(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestServicePath(t *testing.T) {
+	mock := &MockSystemctl{Response: "HOME=/home/u\nPATH=/usr/local/bin:/usr/bin\nLANG=C\n"}
+	m := &Manager{ctl: mock}
+
+	got, err := m.ServicePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/usr/local/bin:/usr/bin" {
+		t.Errorf("ServicePath() = %q", got)
+	}
+	if want := []string{"--user", "show-environment"}; !slices.Equal(mock.Calls[0], want) {
+		t.Errorf("args = %v, want %v", mock.Calls[0], want)
+	}
+
+	mock.Response = "HOME=/home/u\n"
+	if got, err := m.ServicePath(); err != nil || got != "" {
+		t.Errorf("ServicePath() without PATH = %q, %v", got, err)
+	}
+
+	mock.Err = fmt.Errorf("no bus")
+	if _, err := m.ServicePath(); err == nil {
+		t.Error("expected error when systemctl fails")
+	}
+}

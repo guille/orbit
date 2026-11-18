@@ -163,6 +163,22 @@ func (m *Manager) ListUnits() ([]string, error) {
 	return units, nil
 }
 
+// ServicePath returns the PATH the user manager passes to the services it
+// starts, which can differ from the caller's shell. It returns "" when the
+// manager's environment has no PATH.
+func (m *Manager) ServicePath() (string, error) {
+	output, err := m.systemctlOutput("show-environment")
+	if err != nil {
+		return "", fmt.Errorf("reading user manager environment: %w", err)
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		if path, ok := strings.CutPrefix(line, "PATH="); ok {
+			return path, nil
+		}
+	}
+	return "", nil
+}
+
 // StopAndDisableTimers stops and disables multiple timer units in batch.
 func (m *Manager) StopAndDisableTimers(timerNames []string) {
 	if len(timerNames) == 0 {

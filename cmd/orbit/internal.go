@@ -96,13 +96,11 @@ func notifyInternalCmd() *cobra.Command {
 			}
 
 			icon, _ := iconPath()
-			if err := notify.Send(notify.Notification{
+			sendErr := notify.Send(notify.Notification{
 				Title: "Orbit: " + name,
 				Body:  reminderConfig.Message,
 				Icon:  icon,
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "[ORBIT] Warning: failed to send notification: %v\n", err)
-			}
+			})
 
 			// Check if snoozed before Fire() changes state
 			wasSnoozed := reminder.IsSnoozed(stateStore.GetReminderState(name))
@@ -116,6 +114,10 @@ func notifyInternalCmd() *cobra.Command {
 				removeSnoozeTimer(manager, name)
 			}
 
+			// The reminder is pending either way; failing the unit makes a lost popup visible.
+			if sendErr != nil {
+				return fmt.Errorf("sending notification: %w", sendErr)
+			}
 			return nil
 		},
 	}

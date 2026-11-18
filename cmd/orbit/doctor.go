@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.guillerg.dev/orbit/internal/config"
+	"go.guillerg.dev/orbit/internal/notify"
 	"go.guillerg.dev/orbit/internal/state"
 	"go.guillerg.dev/orbit/internal/systemd"
 	"go.guillerg.dev/orbit/internal/task"
@@ -58,6 +59,8 @@ func doctorCmd() *cobra.Command {
 			snap := snapshotUnits(applied)
 			allPassed = checkTaskStates(applied, stateStore, snap) && allPassed
 			allPassed = checkReminderStates(cfg, applied, stateStore) && allPassed
+			allPassed = checkReminderServices(applied, stateStore, snap) && allPassed
+			allPassed = checkNotifier(applied) && allPassed
 			allPassed = checkSentinelFile(stateStore) && allPassed
 			allPassed = checkServiceUnits(applied) && allPassed
 			allPassed = checkTimerStates(applied, stateStore, snap) && allPassed
@@ -270,7 +273,7 @@ func snapshotUnits(applied *state.AppliedConfig) unitSnapshot {
 		}
 	}
 	for name := range applied.Reminders {
-		units = append(units, systemd.ReminderTimerName(name))
+		units = append(units, systemd.ReminderServiceName(name), systemd.ReminderTimerName(name))
 	}
 	statuses, err := systemd.NewManager().UnitStatuses(units)
 	return unitSnapshot{statuses: statuses, err: err}
@@ -388,6 +391,101 @@ func checkReminderStates(cfg *config.Config, applied *state.AppliedConfig, state
 	}
 	fmt.Println(green("PASS"))
 	return true
+}
+
+// checkReminderServices reports reminders whose last delivery failed. The
+// reminder is still recorded as pending; this catches the popup that never
+// showed. Disabled reminders are skipped.
+func checkReminderServices(applied *state.AppliedConfig, stateStore *state.State, snap unitSnapshot) bool {
+	if applied == nil || len(applied.Reminders) == 0 {
+		return true
+	}
+	nextCheck("Checking reminder services")
+	if snap.err != nil {
+		fmt.Println(red("FAIL"))
+		fmt.Printf("   %s: could not query systemd: %v\n", red("FAIL"), snap.err)
+		return false
+	}
+
+	names := mapKeys(applied.Reminders)
+	sortNatural(names)
+
+	var lines []string
+	for _, name := range names {
+		if stateStore.GetReminderState(name).Disabled {
+			continue
+		}
+		msg, failed := diagnoseReminder(snap.statuses[systemd.ReminderServiceName(name)])
+		if !failed {
+			continue
+		}
+		lines = append(lines,
+			fmt.Sprintf("   %s: %s %s", red("FAIL"), name, msg),
+			fmt.Sprintf("         Run 'orbit logs %s' to investigate.", name))
+	}
+
+	if len(lines) == 0 {
+		fmt.Println(green("PASS"))
+		return true
+	}
+	fmt.Println()
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	return false
+}
+
+// diagnoseReminder describes a failed reminder service run. Unlike `_run`,
+// `_notify` has no expected failure exit: any non-zero status is a problem.
+func diagnoseReminder(st systemd.UnitStatus) (string, bool) {
+	switch {
+	case st.Result == "exit-code" && st.ExitStatus == 203:
+		return "orbit could not be executed (exit 203); check orbit_bin", true
+	case st.Result == "exit-code" && st.ExitStatus == 200:
+		return "orbit could not start (exit 200); home directory unreachable", true
+	case st.Result == "exit-code":
+		return fmt.Sprintf("last run failed (exit %d); the notification may not have been shown", st.ExitStatus), true
+	case st.Failed():
+		return fmt.Sprintf("orbit was killed (%s)", st.Result), true
+	}
+	return "", false
+}
+
+// checkNotifier verifies reminder services can find notify-send. It searches
+// the user manager's PATH, not doctor's own: a binary that only the login
+// shell can see still fails every reminder.
+func checkNotifier(applied *state.AppliedConfig) bool {
+	if applied == nil || len(applied.Reminders) == 0 {
+		return true
+	}
+	nextCheck("Checking notification command")
+	path, err := systemd.NewManager().ServicePath()
+	if err != nil {
+		fmt.Printf("%s: %v\n", red("FAIL"), err)
+		return false
+	}
+	if bin, ok := lookPathIn(notify.Binary, path); ok {
+		fmt.Printf("%s (%s)\n", green("PASS"), bin)
+		return true
+	}
+	fmt.Printf("%s: %s not found on the systemd user PATH\n", red("FAIL"), notify.Binary)
+	fmt.Printf("   PATH=%s\n", path)
+	fmt.Println("   Install libnotify, or add its directory with 'systemctl --user set-environment PATH=...'.")
+	return false
+}
+
+// lookPathIn is exec.LookPath against an explicit PATH value.
+func lookPathIn(name, path string) (string, bool) {
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			continue
+		}
+		bin := filepath.Join(dir, name)
+		if fi, err := os.Stat(bin); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return bin, true
+		}
+	}
+	return "", false
 }
 
 // checkSentinelFile verifies the sentinel file matches actual pending count.
