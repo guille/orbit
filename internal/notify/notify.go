@@ -37,5 +37,6 @@ func args(n Notification) []string {
 	if n.Urgency != "" {
 		a = append(a, "--urgency", n.Urgency)
 	}
-	return append(a, n.Title, n.Body)
+	// "--" keeps a message starting with "-" from being parsed as an option.
+	return append(a, "--", n.Title, n.Body)
 }
