@@ -59,5 +59,6 @@ _.path = ["bin/"]
 [deps]
 go = { auto = true }
 
-[tools]
-go = "latest"
+[tools.go]
+version     = "latest"
+postinstall = { run = 'go -C "$MISE_CONFIG_ROOT" mod edit -toolchain="go$MISE_TOOL_VERSION"', when = "always" }

@@ -2,6 +2,8 @@ module go.guillerg.dev/orbit
 
 go 1.27.0
 
+toolchain go1.27.4
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/spf13/cobra v1.10.2
